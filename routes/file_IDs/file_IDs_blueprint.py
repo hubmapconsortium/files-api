@@ -1,5 +1,6 @@
 from flask import Blueprint, Response
 import logging
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,12 @@ def construct_blueprint(fworker):
             # descended from the entity.
             file_info_response = fworker.get_file_info(entity_uuid)
             return file_info_response
+        except requests.exceptions.HTTPError as he:
+            eMsg = he.response.text if he.response.text is not None else 'Undescribed HTTPError'
+            eCode = he.response.status_code if he.response.status_code is not None else 500
+            logger.error(str(eCode) + ':' + eMsg, exc_info=True)
+            return Response(eMsg, eCode)
         except Exception as e:
-            eMsg = str(e)
-            logger.error(e, exc_info=True)
-            return Response("Unexpected error: " + eMsg, 500)
+            logger.error(str(e), exc_info=True)
+            return Response('Unexpected error: ' + str(e), 500)
     return file_IDs_blueprint

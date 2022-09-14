@@ -152,15 +152,18 @@ class FileWorker:
         # Get the single Globus groups token for authorization
         auth_helper_instance = AuthHelper.instance()
         auth_token = auth_helper_instance.getAuthorizationTokens(request.headers)
+        # Try to keep all this isinstance() checking lower in the code, closer to things which are not
+        # ready for change, like commons.AuthHelper. Flip to Python's exception mechanism, and let
+        # upper-level endpoints form a response.
         if isinstance(auth_token, Response):
-            return(auth_token)
+            raise requests.exceptions.HTTPError(response=auth_token)
         elif isinstance(auth_token, str):
             token = auth_token
         else:
-            return Response("Valid Globus groups token required", 401)
+            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
 
         get_url = current_app.config['UUID_API_URL'] + '/uuid/' + entity_id
         response = requests.get(get_url, headers = {'Authorization': 'Bearer ' + token}, verify = False)
         if response.status_code != 200:
-            return Response(response.text, response.status_code)
+            raise requests.exceptions.HTTPError(response=response)
         return response.json()['uuid']
