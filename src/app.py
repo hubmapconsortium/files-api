@@ -10,7 +10,9 @@ import time
 
 from file_worker import FileWorker
 from routes.status import status_blueprint
-from routes.file_IDs import file_IDs_blueprint
+from routes.file_info import file_info_blueprint
+from routes.file_index_sync1 import file_index_sync1_blueprint
+from routes.file_info_index import file_info_index_blueprint
 
 # Specify the absolute path of the instance folder and use the config file relative to the instance path
 app = Flask(__name__, instance_path=os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance'), instance_relative_config=True)
@@ -56,21 +58,16 @@ if app.config['GLOBUS_GROUPS_FILENAME']:
 else:
     globus_groups = None
 
-fworker = None
-try:
-    fworker = FileWorker(globusGroups=globus_groups, app_config=app.config)
-    logger.info("initialized")
-except Exception as e:
-    print("Error during startup.")
-    print(str(e))
-    logger.error(e, exc_info=True)
-    print("Check the log file for further information: " + LOG_FILE_NAME)
-
-app.register_blueprint(status_blueprint.construct_blueprint(fworker))
-app.register_blueprint(file_IDs_blueprint.construct_blueprint(fworker))
+# Register Blueprints
+app.register_blueprint(status_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
+app.register_blueprint(file_info_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
+#app.register_blueprint(file_index_blueprint.construct_blueprint(fworker=unauth_fworker)) #@TODO-@deprecated, replace with manifest_index_blueprint
+#app.register_blueprint(manifest_index_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
+app.register_blueprint(file_info_index_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
 
 # Remove trailing slash / from URL base to avoid "//" caused by config with trailing slash
 app.config['UUID_API_URL'] = app.config['UUID_API_URL'].strip('/')
+app.config['ENTITY_API_URL'] = app.config['ENTITY_API_URL'].strip('/')
 
 secure_group = app.config['SECURE_GROUP']
 

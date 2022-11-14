@@ -2,18 +2,18 @@
 APP_CLIENT_ID = ''
 APP_CLIENT_SECRET = ''
 
+SECURE_GROUP = 'HuBMAP-read'
+
 # AWS credentials for access such as S3 and presigned URLs
 # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html
 AWS_ACCESS_KEY_ID = ''
 AWS_SECRET_ACCESS_KEY = ''
 AWS_S3_BUCKET_NAME = ''
-AWS_OBJECT_URL_EXPIRATION_IN_SECS = 60*60 # 1 hour
+AWS_OBJECT_URL_EXPIRATION_IN_SECS = 10*24*60*60 # 10 days
 # Large response threshold, as determined by len() for the character set, above
 # which responses will be stashed in an S3 bucket and a pre-signed URL
 # returned in the response to avoid the AWS Gateway 10Mb constraint
 LARGE_RESPONSE_THRESHOLD = 9*(2**20)
-
-SECURE_GROUP = 'HuBMAP-read'
 
 # MySQL connection (default value used for docker dev environment)
 # Point to remote MySQL for testing and production deployment
@@ -28,4 +28,22 @@ DB_PASSWORD = '123'
 #UUID_API_URL = 'http://uuid-api:8080'
 UUID_API_URL = 'https://uuid-api.dev.hubmapconsortium.org/'
 
+ENTITY_API_URL = 'http://localhost:5002/'
 
+SEARCH_API_URL = 'http://localhost:5005'
+
+# search-api/Elasticsearch settings
+#FILES_API_INDEX_NAME = 'hm_files'
+FILES_API_INDEX_NAME = 'hm_dev_files'
+
+# If you want to overwrite Globus group information, set with the name of a file in the
+# instance directory which Flask should load.  Set to None if you do not want to overwrite Globus groups.
+GLOBUS_GROUPS_FILENAME = None
+
+# # MySQL connection (default value used for docker dev environment)
+# # Point to remote MySQL for testing and production deployment
+#
+DB_HOST = ''
+DB_NAME = ''
+DB_USERNAME = ''
+DB_PASSWORD = ''

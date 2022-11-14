@@ -70,3 +70,18 @@ paths:
           description: The target id could not be found
         '500':
           description: An unexpected error occurred
+  '/datasets/{id}/reindex':
+    put:
+      summary: Create a file info JSON document for each File in the public Dataset of the UUID provided, and put in the Elasticsearch hm_files index.
+      parameters:
+        - name: id
+          in: path
+          description: A Dataset UUID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A json array containing the UUID of each File whose file info document was put in the Elasticsearch hm_files index.
+        '202':
+          description: @TODO-KBKBKB describe short ack for thread launch
