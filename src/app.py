@@ -8,11 +8,9 @@ import logging
 import json
 import time
 
-from file_worker import FileWorker
-from routes.status import status_blueprint
-from routes.file_info import file_info_blueprint
-from routes.file_index_sync1 import file_index_sync1_blueprint
-from routes.file_info_index import file_info_index_blueprint
+from src.routes.status import status_blueprint
+from src.routes.file_info import file_info_blueprint
+from src.routes.file_info_index import file_info_index_blueprint
 
 # Specify the absolute path of the instance folder and use the config file relative to the instance path
 app = Flask(__name__, instance_path=os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance'), instance_relative_config=True)

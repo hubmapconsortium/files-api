@@ -12,11 +12,11 @@ def construct_blueprint(globusGroups, appConfig):
     app_config = appConfig
 
     """
-    Show status of the current VERSION and BUILD
+    Get a JSON array containing information from the UUID database about each file attached to the entity
     Returns
     -------
     json
-        A json containing the status details
+        A JSON array containing the file details
     """
     @file_info_blueprint.route('/<entity_id>/files', methods=['GET'])
     def get_file_info(entity_id):

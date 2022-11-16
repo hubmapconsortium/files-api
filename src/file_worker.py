@@ -510,6 +510,7 @@ class FileWorker:
                             '''
 
             # The file extension is everything after the last period, if there is any period. Blank otherwise.
+            #@TODO-KBKBKB-peel off the leaf of rel_path, which should be just the file name, and find file_extension of its last period. Align with file-api-spec.yaml
             file_info['file_extension'] = file_info['rel_path'][file_info['rel_path'].rindex('.')+1:] if file_info['rel_path'].find('.') > -1 else ''
             file_info['samples'] = tissue_samples_dict_list
             file_info['organs'] = organs_dict_list
@@ -674,7 +675,7 @@ class FileWorker:
             if not files_info_list:
                 self.logger.error(f"Unable to retrieve the file set JSON to do indexing for dataset_uuid={aDatasetUUID}")
                 # @TODO-verify with [] response. Decide if Exception should actually be raised.
-                raise Exception(f"Unexpected JSON content for dataset_uuid={aDatasetUUID}")
+                raise Exception(f"Unexpected JSON content getting file info documents for dataset_uuid={aDatasetUUID}")
 
             # Try clearing the documents for the Dataset before inserting current documents, in case
             # Files were removed from the Dataset since initially put in the index.  But don't skip
