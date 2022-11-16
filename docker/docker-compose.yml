@@ -6,11 +6,11 @@ services:
   files-api:
     hostname: files-api
     container_name: files-api
-    # Map host machine port 3333 to container port 8080
+    # Map host machine port 5555 to container port 8080
     # Only root can listen on ports below 1024, we use higher-numbered ports
     # since nginx is running under non-root user hubmap
     ports:
-      - "3333:8080"
+      - "5555:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080"]
       interval: 1m30s
