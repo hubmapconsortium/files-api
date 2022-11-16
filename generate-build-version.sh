@@ -2,7 +2,7 @@
 
 # Print a new line and the banner
 echo
-echo "==================== ENTITY-API ===================="
+echo "==================== FILES-API ===================="
 
 # Generate the build version based on git branch name and short commit hash and write into BUILD file
 function generate_build_version() {
