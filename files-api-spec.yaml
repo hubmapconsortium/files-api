@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   description: 'The HuBMAP Files API is a standard RESTful web service to manage files associated with project entities.'
-  version: 0.0.0
+  version: 0.1.0
   title: HuBMAP Files API
   contact:
     name: HuBMAP Help Desk
@@ -11,14 +11,7 @@ info:
     url: 'https://github.com/hubmapconsortium/files-api/blob/main/LICENSE'
 servers:
   - url: 'https://files.api.hubmapconsortium.org'
-components:
-  securitySchemes:
-    bearerAuth:
-      type: apiKey
-      name: Authorization
-      in: header
-      description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation
-  schemas:
+
 paths:
   '/{id}/files':
     get:
@@ -59,9 +52,7 @@ paths:
                         - DATA_UPLOAD
                       description: One of DATA_UPLOAD|INGEST_PORTAL_UPLOAD. INGEST_PORTAL_UPLOAD means the file was uploaded into the space for file uploads from the Ingest UI.  DATA_UPLOAD means the file was upload into the upload space for datasets usually via Globus
         '303':
-          description: The response is too large for the endpoint to return, and must be retrieved from an AWS S3 bucket.
-          content:
-            url: URL of AWS S3 bucket with JSON content as described for an HTTP 200 response.
+          description: The response is too large for the endpoint to return, and must be retrieved from an AWS S3 bucket. URL of AWS S3 bucket with JSON content as described for an HTTP 200 response.
         '401':
           description: The user's token has expired or the user did not supply a valid token
         '403':
@@ -84,4 +75,4 @@ paths:
         '200':
           description: A json array containing the UUID of each File whose file info document was put in the Elasticsearch hm_files index.
         '202':
-          description: @TODO-KBKBKB describe short ack for thread launch
+          description: '@TODO-KBKBKB describe short ack for thread launch'
