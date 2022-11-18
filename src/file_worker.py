@@ -32,7 +32,7 @@ ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-ap
 # Keep a file of descriptions associated with a Dataset data_type and a file regex pattern until
 # the ontology service is available.  Load the file into a dictionary keyed by data_type, and
 # containing a dictionary keyed by file regex pattern with the description as a value.
-DATASET_DESCRIPTION_CSV_FILE = 'instance/DatasetDescriptionLookup20220929.tsv'
+DATASET_DESCRIPTION_CSV_FILE = 'DatasetDescriptionLookup.tsv'
 
 # Set up scalars with SQL strings matching the paramstyle of the database module, as
 # specified at https://peps.python.org/pep-0249
