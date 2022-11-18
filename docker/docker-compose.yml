@@ -29,7 +29,9 @@ services:
       # Mount the logging to container
       - "../log:/usr/src/app/log"
       # Mount conf.d on host machine to the nginx conf.d on container
-      - "./entity-api/nginx/conf.d:/etc/nginx/conf.d"
+      - "./files-api/nginx/conf.d:/etc/nginx/conf.d"
+      # Mount the lookup file
+      - "../src/DatasetDescriptionLookup.tsv:/usr/src/app/src/DatasetDescriptionLookup.tsv"
     networks:
       - gateway_hubmap
 
