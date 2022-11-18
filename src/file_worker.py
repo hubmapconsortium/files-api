@@ -20,8 +20,8 @@ from hubmap_commons.hm_auth import AuthHelper
 from hubmap_commons.hubmap_const import HubmapConst
 
 # UMLS Concept Unique Identifiers used to encode entity-api information
-UMLS_AGE_CUI = 'C0001779'
-UMLS_RACE_CUI = 'C0027567'
+UMLS_AGE_GROUP_CUI = 'C0001779'
+UMLS_RACE_GROUP_CUI = 'C0034510'
 
 # Yaml file to be parsed for organ description lookup
 ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/master/src/search-schema/data/definitions/enums/organ_types.yaml'
@@ -462,10 +462,10 @@ class FileWorker:
                 organ_dict['type'] = 'Unrecognized organ code: ' + organ_dict['type_code']
             if 'organ_donor_data' in organ_info['direct_ancestor']['metadata']:
                 for concept in organ_info['direct_ancestor']['metadata']['organ_donor_data']:
-                    if concept['concept_id'] == UMLS_AGE_CUI:
+                    if concept['grouping_concept'] == UMLS_AGE_GROUP_CUI:
                         donor_dict['age'] = float(concept['data_value']) if concept['data_value'] else None
                         donor_dict['units'] = concept['units'] if concept['units'] else None
-                    if concept['concept_id'] == UMLS_RACE_CUI:
+                    if concept['grouping_concept'] == UMLS_RACE_GROUP_CUI:
                         donor_dict['race'] = concept['preferred_term'] if concept['preferred_term'] else None
             if donor_dict:
                 donors_dict_list.append(donor_dict)

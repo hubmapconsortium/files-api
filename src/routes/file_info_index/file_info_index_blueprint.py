@@ -50,11 +50,11 @@ def construct_blueprint(globusGroups, appConfig):
                 dataset_files_info_response_dict = {'dataset_uuid': dataset_uuid, 'file_count': len(index_response_dict),
                                                     'index_responses': {}}
                 accepted_file_uuid_list = []
-                for file_uuid in index_response_dict.keys():
-                    if re.match(index_response_dict[file_uuid], f"Request of adding {file_uuid} accepted"):
+                for file_uuid in index_response_dict[dataset_uuid].keys():
+                    if re.match(index_response_dict[dataset_uuid][file_uuid], f"Request of adding {file_uuid} accepted"):
                         accepted_file_uuid_list.append(file_uuid)
                     else:
-                        dataset_files_info_response_dict['index_responses'][file_uuid] = index_response_dict[file_uuid]
+                        dataset_files_info_response_dict['index_responses'][file_uuid] = index_response_dict[dataset_uuid][file_uuid]
                 dataset_files_info_response_dict['index_responses']["Request of adding <file_uuid> accepted"] = accepted_file_uuid_list
 
                 # # Create a fresh file manifest document for the specified Dataset from the dataset-file-info endpoint. @TODO-if the "reindex" option is specified but the file-info cannot be created, should this return normal, empty response, and effectively go on to delete from index?  Or should it halt before removing from the index, and tell them to use a DELETE endpoint if they want to delete? Can index contain an empty doc for a Dataset with no files yet?

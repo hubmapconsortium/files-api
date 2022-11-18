@@ -11,11 +11,18 @@ info:
     url: 'https://github.com/hubmapconsortium/files-api/blob/main/LICENSE'
 servers:
   - url: 'https://files.api.hubmapconsortium.org'
-
+components:
+  securitySchemes:
+    bearerAuth:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation
+  schemas:
 paths:
   '/{id}/files':
     get:
-      summary: Get the information about files attached to a given entity given an entity id (e.g. HBM123.ABCD.456) or UUID
+      summary: Get the information about files attached to an entity, given an entity identifier (e.g. HBM123.ABCD.456 or UUID.)
       parameters:
         - name: id
           in: path
@@ -25,7 +32,7 @@ paths:
             type: string
       responses:
         '200':
-          description: A json array containing an object for each file returned
+          description: A JSON array containing an object for each file attached to the entity.
           content:
             application/json:
               schema:
@@ -38,41 +45,142 @@ paths:
                       description: The uuid of the file
                     path:
                       type: string
-                      description: The local file system path including name of the file
+                      description: The local file system path of the file relative to its Dataset directory, including the file name
                     checksum:
                       type: string
                       description: The checksum of the file
                     size:
-                      type: string
+                      type: integer
                       description: Integer size of the file in bytes
                     base_dir:
                       type: string
                       enum:
                         - INGEST_PORTAL_UPLOAD
                         - DATA_UPLOAD
-                      description: One of DATA_UPLOAD|INGEST_PORTAL_UPLOAD. INGEST_PORTAL_UPLOAD means the file was uploaded into the space for file uploads from the Ingest UI.  DATA_UPLOAD means the file was upload into the upload space for datasets usually via Globus
+                      description: One of DATA_UPLOAD|INGEST_PORTAL_UPLOAD. INGEST_PORTAL_UPLOAD means the file was uploaded into the space for file uploads from the Ingest UI.  DATA_UPLOAD means the file was upload into the upload space for datasets, usually via Globus
         '303':
-          description: The response is too large for the endpoint to return, and must be retrieved from an AWS S3 bucket. URL of AWS S3 bucket with JSON content as described for an HTTP 200 response.
+          description: The response is too large for the endpoint to return, and must be retrieved from an AWS S3 bucket within one hour, at the URL in response. The bucket will contain the same JSON content as described for an HTTP 200 response.'
         '401':
           description: The user's token has expired or the user did not supply a valid token
         '403':
-          description: THe user is not authorized to use this method
+          description: The user is not authorized to use this method
+        '404':
+          description: The target id could not be found
+        '500':
+          description: An unexpected error occurred
+  '/{id}/dataset-file-infos':
+    get:
+      summary: Get an array of "file info" documents for each file attached to an entity, given an entity identifier (e.g. HBM123.ABCD.456 or UUID.)
+      parameters:
+        - name: id
+          in: path
+          description: Either an HuBMAP ID (e.g. HBM123.ABCD.456) or UUID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A JSON array containing a "file info" object for each file attached to the entity. Each object becomes an Elasticsearch document.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    file_uuid:
+                      type: string
+                      description: The uuid of the file
+                    checksum:
+                      type: string
+                      description: The hexidecimal representation of the MD5 checksum of the file
+                    size:
+                      type: integer
+                      description: Integer size of the file in bytes
+                    rel_path:
+                      type: string
+                      description: The local file system path of the file relative to its Dataset directory, including the file name
+                    file_extension:
+                      type: string
+                      description: The part of rel_path after the final period in the file name, which is after the final directory separator
+                    samples:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          uuid:
+                            type: string
+                            description: The uuid of a Sample entity whose specimen type is not 'organ', which is an ancestor of the file
+                          code:
+                            type: string
+                            description: A specimen type from the ["tissue sample types" specified for the HuBMAP entity-api](https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/tissue_sample_types.yaml).
+                            example:
+                              $ref: https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/tissue_sample_types.yaml
+                          type:
+                            type: string
+                            description: A description for the tissue sample type of the specimen, specified as the "code"
+                    organs:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          uuid:
+                            type: string
+                            description: The uuid of a Sample entity whose specimen type is 'organ', which is an ancestor of a Sample included in "samples"
+                          type_code:
+                            type: string
+                            description: A organ type from the ["organ types" specified for the HuBMAP search-api](https://raw.githubusercontent.com/hubmapconsortium/search-api/master/src/search-schema/data/definitions/enums/organ_types.yaml).
+                            example:
+                              $ref: 'https://raw.githubusercontent.com/hubmapconsortium/search-api/master/src/search-schema/data/definitions/enums/organ_types.yaml'
+                          type:
+                            type: string
+                            description: A description for the organ type of the specimen, specified as the "type_code"
+                    donors:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          uuid:
+                            type: string
+                            description: The uuid of a Donor entity which is an ancestor of a Sample included in "organs"
+                          age:
+                            type: number
+                            format: float
+                            description: A float value created from the Donor entity metadata for the [UMLS age group CUI C0001779](https://uts.nlm.nih.gov/uts/umls/concept/C0001779)
+                          units:
+                            type: string
+                            description: The unit of measure for the age concept of the Donor entity metadata
+                          race:
+                            type: string
+                            description: A UMLS preferred term from the Donor entity metadata for the [UMLS race group CUI C0034510](https://uts.nlm.nih.gov/uts/umls/concept/C0034510)
+                    dataset_uuid:
+                      type: string
+                      description: The 32 character UUID of the Dataset which is the direct ancestor of this file
+                    data_types:
+                      type: array
+                      items:
+                        type: string
+                        description: A description for an assay type of the Dataset
+                        example:
+                          $ref: 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
+        '401':
+          description: The user's token has expired or the user did not supply a valid token
+        '403':
+          description: The user is not authorized to use this method
         '404':
           description: The target id could not be found
         '500':
           description: An unexpected error occurred
   '/datasets/{id}/reindex':
     put:
-      summary: Create a file info JSON document for each File in the public Dataset of the UUID provided, and put in the Elasticsearch hm_files index.
+      summary: Create a file info JSON document for each File in the public Dataset of the UUID provided, and put it in the Elasticsearch hm_files indices. Public Datasets are published and do not contain genetic information.
       parameters:
         - name: id
           in: path
-          description: A Dataset UUID
+          description: A Dataset 32-character UUID or HuBMAP ID (e.g. HBM123.ABCD.456)
           required: true
           schema:
             type: string
       responses:
-        '200':
-          description: A json array containing the UUID of each File whose file info document was put in the Elasticsearch hm_files index.
         '202':
-          description: '@TODO-KBKBKB describe short ack for thread launch'
+          description: A response acknowledging the request to load the Dataset, including the Dataset UUID and the index name.
