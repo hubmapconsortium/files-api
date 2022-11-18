@@ -15,22 +15,23 @@ AWS_OBJECT_URL_EXPIRATION_IN_SECS = 10*24*60*60 # 10 days
 # returned in the response to avoid the AWS Gateway 10Mb constraint
 LARGE_RESPONSE_THRESHOLD = 9*(2**20)
 
-# MySQL connection (default value used for docker dev environment)
-# Point to remote MySQL for testing and production deployment
-DB_HOST = 'hubmap-mysql'
-DB_NAME = 'hm_uuid'
-DB_USERNAME = 'root'
-DB_PASSWORD = '123'
+# MySQL connection
+DB_HOST = ''
+DB_NAME = ''
+DB_USERNAME = ''
+DB_PASSWORD = ''
 
 # URL for talking to UUID API (default value used for docker deployment, no token needed)
 # Works regardless of the trailing slash /
-## Use 'http://hubmap-auth:9999' for localhost docker deployment
-#UUID_API_URL = 'http://uuid-api:8080'
-UUID_API_URL = 'https://uuid-api.dev.hubmapconsortium.org/'
+UUID_API_URL = 'http://uuid-api:8080'
 
-ENTITY_API_URL = 'http://localhost:5002/'
+# URL for talking to Entity API (default value used for docker deployment, no token needed)
+# Works regardless of the trailing slash /
+ENTITY_API_URL = 'http://entity-api:8080'
 
-SEARCH_API_URL = 'http://localhost:5005'
+# URL for talking to Search API (default value used for docker deployment, no token needed)
+# Works regardless of the trailing slash /
+SEARCH_API_URL = 'http://search-api:8080'
 
 # search-api/Elasticsearch settings
 #FILES_API_INDEX_NAME = 'hm_files'
@@ -39,11 +40,3 @@ FILES_API_INDEX_NAME = 'hm_dev_files'
 # If you want to overwrite Globus group information, set with the name of a file in the
 # instance directory which Flask should load.  Set to None if you do not want to overwrite Globus groups.
 GLOBUS_GROUPS_FILENAME = None
-
-# # MySQL connection (default value used for docker dev environment)
-# # Point to remote MySQL for testing and production deployment
-#
-DB_HOST = ''
-DB_NAME = ''
-DB_USERNAME = ''
-DB_PASSWORD = ''
