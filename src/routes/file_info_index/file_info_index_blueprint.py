@@ -182,7 +182,7 @@ def construct_blueprint(globusGroups, appConfig):
         A json containing details of the dataset indexing operation
     """
     @file_info_index_blueprint.route('/dataset-files-index', methods=['PUT'])
-    @file_info_index_blueprint.route('/datasets/reindex_all', methods=['PUT'])
+    @file_info_index_blueprint.route('/datasets/reindex-all', methods=['PUT'])
     def reindex_dataset_files_docs():
         inserted_datasets_list = []
         failed_datasets_list = []
