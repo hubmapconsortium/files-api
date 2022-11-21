@@ -673,9 +673,13 @@ class FileWorker:
             files_info_list = dataset_files_info_response.get_json()
 
             if not files_info_list:
-                self.logger.error(f"Unable to retrieve the file set JSON to do indexing for dataset_uuid={aDatasetUUID}")
-                # @TODO-verify with [] response. Decide if Exception should actually be raised.
-                raise Exception(f"Unexpected JSON content getting file info documents for dataset_uuid={aDatasetUUID}")
+                # @TODO-verified reach here with [] file_info_list. Decide if Exception should actually be raised.
+                # if this is a Dataset with no files, but the response is fine, do not log an error
+                if dataset_files_info_response.status_code == 200:
+                    pass
+                else:
+                    self.logger.error(f"Unable to retrieve the file set JSON to do indexing for dataset_uuid={aDatasetUUID}")
+                    raise Exception(f"Unexpected JSON content getting file info documents for dataset_uuid={aDatasetUUID}")
 
             # Try clearing the documents for the Dataset before inserting current documents, in case
             # Files were removed from the Dataset since initially put in the index.  But don't skip
@@ -732,7 +736,8 @@ class FileWorker:
                     self.logger.info(f"Finished updating {self.files_api_index_name} for all file info documents"
                                      f" for Dataset '{dataset_uuid}'.")
                 except Exception as eDataset:
-                    if eDataset.response.status_code == 400 and \
+                    if eDataset.response and \
+                       eDataset.response.status_code == 400 and \
                        re.match(".*Make sure this is a Primary Dataset.*", str(eDataset.response.text)):
                         skipped_datasets_list.append(dataset_uuid)
                         self.logger.warning(f"While updating {self.files_api_index_name} for all file info documents"
@@ -745,10 +750,14 @@ class FileWorker:
                                           f", got '{eDataset.response.text}'.")
                     # Continue this loop for other Datasets in datasetList
         except Exception as eWholeList:
-            self.logger.error(f"While updating {self.files_api_index_name} for all file info documents"
+            self.logger.error(f"While updating {self.files_api_index_name} with file info documents"
+                              f" for Dataset {dataset_uuid}"
+                              f" during 'reindex all'"
                               f", got e='{str(eWholeList)}'.")
             raise Exception(f"An error was encountered while updating"
-                            f"{self.files_api_index_name} for all file info documents."
+                            f" {self.files_api_index_name} with file info documents"
+                            f" for Dataset {dataset_uuid}"
+                            f" during 'reindex all'"
                             f" See logs.")
         self.logger.info(f"Inserted entries for {len(inserted_datasets_list)} Datasets in ES {self.files_api_index_name} index.")
         self.logger.info(f"Skipped {len(skipped_datasets_list)} Datasets (due to unsupported characteristics).")
