@@ -47,7 +47,8 @@ def construct_blueprint(globusGroups, appConfig):
                 index_response_dict[dataset_uuid] = fworker.index_dataset(aDatasetUUID=dataset_uuid)
 
                 # Consolidate the successful responses together into a subdictionary in the JSON response.
-                dataset_files_info_response_dict = {'dataset_uuid': dataset_uuid, 'file_count': len(index_response_dict),
+                dataset_files_info_response_dict = {'dataset_uuid': dataset_uuid,
+                                                    'file_count': len(index_response_dict[dataset_uuid]),
                                                     'index_responses': {}}
                 accepted_file_uuid_list = []
                 for file_uuid in index_response_dict[dataset_uuid].keys():
