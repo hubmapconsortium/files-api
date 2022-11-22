@@ -18,7 +18,7 @@ def construct_blueprint(globusGroups, appConfig):
     json
         A JSON array containing the file details
     """
-    @file_info_blueprint.route('/<entity_id>/files', methods=['GET'])
+    @file_info_blueprint.route('/entities/<entity_id>/files', methods=['GET'])
     def get_file_info(entity_id):
         try:
             fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
@@ -42,16 +42,19 @@ def construct_blueprint(globusGroups, appConfig):
             return Response(f"Unexpected error: {eMsg}", 500)
 
     """
-    Get JSON containing the file info for each file in a dataset
+    Get JSON containing the file info document for each file in a dataset
     Returns
     -------
     json
-        A json containing the file info for each file in the dataset
+        A json containing the file info document for each file in the dataset
     """
-    @file_info_blueprint.route('/<dataset_id>/dataset-file-infos', methods=['GET'])
+    @file_info_blueprint.route('/datasets/<dataset_id>/construct-file-documents', methods=['GET'])
     def get_dataset_file_infos(dataset_id):
         try:
             fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
+
+            # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
+            fworker.verify_op_permission(aDataset=None)
 
             # Use the uuid-api webservice to check the identifier format and
             # extract the uuid for the entity.

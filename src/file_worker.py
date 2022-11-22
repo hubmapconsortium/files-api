@@ -589,12 +589,12 @@ class FileWorker:
 
     # Verify any requirements or permissions need to proceed with indexing operations for
     # the specified Dataset.  If no Dataset is specified, verify admin privileges to index all Datasets.
-    def verify_indexable(self, aDataset):
+    def verify_op_permission(self, aDataset):
         if aDataset is None:
             if self.auth_helper.has_data_admin_privs(self.user_token):
                 return True
             else:
-                raise Exception(f"Permission denied for indexing all Datasets.")
+                raise Exception(f"Permission denied for requested operation.")
 
         # Confirm the retrieved Dataset is a public Dataset
         # Align constants with search-api indexer_base.py Indexer.DATASET_STATUS_PUBLISHED
@@ -728,7 +728,7 @@ class FileWorker:
                     # compatible with index inclusion.
                     # N.B. does not test for "primary" Datasets, which may cause an exception below, but which
                     #      should also be allowed to be indexed in the near future.
-                    self.verify_indexable(aDataset=theDataset)
+                    self.verify_op_permission(aDataset=theDataset)
 
                     index_response_dict[dataset_uuid] = self.index_dataset(aDatasetUUID=dataset_uuid)
 

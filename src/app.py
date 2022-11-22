@@ -59,8 +59,6 @@ else:
 # Register Blueprints
 app.register_blueprint(status_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
 app.register_blueprint(file_info_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
-#app.register_blueprint(file_index_blueprint.construct_blueprint(fworker=unauth_fworker)) #@TODO-@deprecated, replace with manifest_index_blueprint
-#app.register_blueprint(manifest_index_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
 app.register_blueprint(file_info_index_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
 
 # Remove trailing slash / from URL base to avoid "//" caused by config with trailing slash
