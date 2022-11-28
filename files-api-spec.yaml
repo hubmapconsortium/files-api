@@ -11,13 +11,6 @@ info:
     url: 'https://github.com/hubmapconsortium/files-api/blob/main/LICENSE'
 servers:
   - url: 'https://files.api.hubmapconsortium.org'
-components:
-  securitySchemes:
-    bearerAuth:
-      type: apiKey
-      name: Authorization
-      in: header
-      description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation
 
 paths:
   '/entities/{id}/files':
