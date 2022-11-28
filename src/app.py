@@ -55,8 +55,6 @@ app.register_blueprint(file_info_index_blueprint.construct_blueprint(appConfig=a
 app.config['UUID_API_URL'] = app.config['UUID_API_URL'].strip('/')
 app.config['ENTITY_API_URL'] = app.config['ENTITY_API_URL'].strip('/')
 
-secure_group = app.config['SECURE_GROUP']
-
 # Suppress InsecureRequestWarning warning when requesting status on https with ssl cert verify disabled
 requests.packages.urllib3.disable_warnings(category = InsecureRequestWarning)
 
