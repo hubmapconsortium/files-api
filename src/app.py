@@ -46,20 +46,10 @@ except Exception as e:
     print("Error opening log file during startup")
     print(str(e))
 
-if app.config['GLOBUS_GROUPS_FILENAME']:
-    logger.info("Overriding Globus groups with contents of GLOBUS_GROUPS_FILENAME=%s.",app.config['GLOBUS_GROUPS_FILENAME'])
-    try:
-        with open(os.path.join(app.instance_path, app.config['GLOBUS_GROUPS_FILENAME'])) as jsonFile:
-            globus_groups = json.load(jsonFile)
-    except Exception as e:
-        logger.critical(e, exc_info=True)
-else:
-    globus_groups = None
-
 # Register Blueprints
-app.register_blueprint(status_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
-app.register_blueprint(file_info_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
-app.register_blueprint(file_info_index_blueprint.construct_blueprint(globusGroups=globus_groups, appConfig=app.config))
+app.register_blueprint(status_blueprint.construct_blueprint(appConfig=app.config))
+app.register_blueprint(file_info_blueprint.construct_blueprint(appConfig=app.config))
+app.register_blueprint(file_info_index_blueprint.construct_blueprint(appConfig=app.config))
 
 # Remove trailing slash / from URL base to avoid "//" caused by config with trailing slash
 app.config['UUID_API_URL'] = app.config['UUID_API_URL'].strip('/')

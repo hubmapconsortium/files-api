@@ -10,9 +10,8 @@ from file_worker import FileWorker
 
 logger = logging.getLogger(__name__)
 
-def construct_blueprint(globusGroups, appConfig):
+def construct_blueprint(appConfig):
     file_info_index_blueprint = Blueprint('file_info_index', __name__)
-    globus_groups = globusGroups
     app_config = appConfig
 
     """
@@ -25,7 +24,7 @@ def construct_blueprint(globusGroups, appConfig):
     @file_info_index_blueprint.route('/datasets/<dataset_id>/reindex', methods=['PUT'])
     def create_update_dataset_file_infos(dataset_id):
         try:
-            fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Specify argument to confirm dataset_id is for a Dataset entity.
             theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check='DATASET')
@@ -89,7 +88,7 @@ def construct_blueprint(globusGroups, appConfig):
     """
     @file_info_index_blueprint.route('/datasets/reindex-all', methods=['PUT'])
     def reindex_dataset_files_docs():
-        fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
+        fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
         # Verify the user is a Data Admin, who can index all datasets
         fworker.verify_op_permission(aDataset=None)

@@ -36,7 +36,3 @@ SEARCH_API_URL = 'http://search-api:8080'
 # search-api/Elasticsearch settings
 #FILES_API_INDEX_NAME = 'hm_files'
 FILES_API_INDEX_NAME = 'hm_dev_files'
-
-# If you want to overwrite Globus group information, set with the name of a file in the
-# instance directory which Flask should load.  Set to None if you do not want to overwrite Globus groups.
-GLOBUS_GROUPS_FILENAME = None

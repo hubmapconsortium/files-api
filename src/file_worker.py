@@ -54,8 +54,9 @@ SQL_SELECT_FILES_DESCENDED_FROM_ANCESTOR_UUID = \
 
 class FileWorker:
 
-    def __init__(self, globusGroups=None, appConfig=None, requestHeaders=None):
+    def __init__(self, appConfig=None, requestHeaders=None):
         self.logger = logging.getLogger()
+        self.logger.setLevel(logging.DEBUG)
         self.auth_helper = AuthHelper.configured_instance(appConfig['APP_CLIENT_ID'], appConfig['APP_CLIENT_SECRET'])
 
         if requestHeaders:

@@ -6,9 +6,8 @@ from file_worker import FileWorker
 
 logger = logging.getLogger(__name__)
 
-def construct_blueprint(globusGroups, appConfig):
+def construct_blueprint(appConfig):
     file_info_blueprint = Blueprint('file_info', __name__)
-    globus_groups = globusGroups
     app_config = appConfig
 
     """
@@ -21,7 +20,7 @@ def construct_blueprint(globusGroups, appConfig):
     @file_info_blueprint.route('/entities/<entity_id>/files', methods=['GET'])
     def get_file_info(entity_id):
         try:
-            fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Use the uuid-api webservice to check the identifier format and
             # extract the uuid for the entity.
@@ -51,7 +50,7 @@ def construct_blueprint(globusGroups, appConfig):
     @file_info_blueprint.route('/datasets/<dataset_id>/construct-file-documents', methods=['GET'])
     def get_dataset_file_infos(dataset_id):
         try:
-            fworker = FileWorker(globusGroups=globus_groups, appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
             fworker.verify_op_permission(aDataset=None)
