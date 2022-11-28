@@ -18,7 +18,7 @@ components:
       name: Authorization
       in: header
       description: Globus bearer token to authorize requests. Have to use apiKey to pass AWS API Gateway import validation
-  schemas:
+
 paths:
   '/entities/{id}/files':
     get:
