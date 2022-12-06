@@ -53,7 +53,8 @@ def construct_blueprint(appConfig):
             fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
-            fworker.verify_op_permission(aDataset=None)
+            if not fworker.verify_data_admin():
+                raise Exception(f"Permission denied for requested operation.")
 
             # Use the uuid-api webservice to check the identifier format and
             # extract the uuid for the entity.
