@@ -91,7 +91,7 @@ def construct_blueprint(appConfig):
 
         # Verify the user is a Data Admin, who can index all datasets
         if not fworker.verify_data_admin():
-            raise Exception(f"Permission denied for requested operation.")
+            raise Exception("Permission denied for requested operation.")
 
         asynchronous = request.args.get('async')
 
@@ -102,13 +102,12 @@ def construct_blueprint(appConfig):
                 threading.Thread(target=fworker.index_all_datasets, args=[]).start()
                 # discard the index_response_dict, as it will be logged at the INFO level by the FileWorker
 
-                logger.info(
-                    f"Started to index file info documents for all Datasets to the public and private Elasticsearch indices.")
+                logger.info("Started to index file info documents for all Datasets to the public and private Elasticsearch indices.")
             except Exception as e:
                 logger.exception(e)
                 raise Exception(e)
 
-        return f"Request to index file info documents for all Datasets into the public and private Elasticsearch indices accepted", 202
+        return "Request to index file info documents for all Datasets into the public and private Elasticsearch indices accepted", 202
 
     # end construct_blueprint()
     return file_info_index_blueprint

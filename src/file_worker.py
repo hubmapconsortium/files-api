@@ -25,7 +25,7 @@ UMLS_AGE_GROUP_CUI = 'C0001779'
 UMLS_RACE_GROUP_CUI = 'C0034510'
 
 # Yaml file to be parsed for organ description lookup
-ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/master/src/search-schema/data/definitions/enums/organ_types.yaml'
+ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/organ_types.yaml'
 # Yaml file to be parsed for tissue description lookup
 TISSUE_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/tissue_sample_types.yaml'
 ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
@@ -90,9 +90,9 @@ class FileWorker:
             self.dbName = appConfig['DB_NAME']
             self.dbUsername = appConfig['DB_USERNAME']
             self.dbPassword = appConfig['DB_PASSWORD']
-            self.uuid_api_url = appConfig['UUID_API_URL']
-            self.entity_api_url = appConfig['ENTITY_API_URL']
-            self.search_api_url = appConfig['SEARCH_API_URL']
+            self.uuid_api_url = appConfig['UUID_API_URL'].strip('/')
+            self.entity_api_url = appConfig['ENTITY_API_URL'].strip('/')
+            self.search_api_url = appConfig['SEARCH_API_URL'].strip('/')
             self.files_api_public_index = appConfig['FILES_API_PUBLIC_INDEX']
             self.files_api_nonpublic_index = appConfig['FILES_API_NONPUBLIC_INDEX']
 
