@@ -31,6 +31,6 @@ ENTITY_API_URL = 'http://entity-api:8080'
 # Works regardless of the trailing slash /
 SEARCH_API_URL = 'http://search-api:8080'
 
-# Elasticsearch index names, as supported by search-api
+# Elasticsearch index names, as supported by search-api in search-config.yaml deployed for each tier.
 FILES_API_PUBLIC_INDEX = 'hm_dev_public_files'
-FILES_API_NONPUBLIC_INDEX = 'hm_dev_nonpublic_files'
+FILES_API_NONPUBLIC_INDEX = 'hm_dev_consortium_files'
