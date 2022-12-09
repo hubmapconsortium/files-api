@@ -29,7 +29,8 @@ def construct_blueprint(appConfig):
             # Specify argument to confirm dataset_id is for a Dataset entity.
             theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check='DATASET')
 
-            fworker.verify_op_permission(aDataset=theDataset)
+            if not fworker.verify_user_in_write_group(aDataset=theDataset) and not fworker.verify_data_admin():
+                raise Exception(f"Permission denied for modifying ES index entries for '{theDataset['uuid']}'.")
 
             dataset_uuid = theDataset['uuid']
 
@@ -42,32 +43,30 @@ def construct_blueprint(appConfig):
             index_response_dict = {}
 
             if asynchronous:
-                index_response_dict[dataset_uuid] = fworker.index_dataset(aDatasetUUID=dataset_uuid)
+                index_response_dict[dataset_uuid] = fworker.index_dataset(aDataset=theDataset)
 
                 # Consolidate the successful responses together into a subdictionary in the JSON response.
                 dataset_files_info_response_dict = {'dataset_uuid': dataset_uuid,
                                                     'file_count': len(index_response_dict[dataset_uuid]),
                                                     'index_responses': {}}
-                accepted_file_uuid_list = []
                 for file_uuid in index_response_dict[dataset_uuid].keys():
-                    if re.match(index_response_dict[dataset_uuid][file_uuid], f"Request of adding {file_uuid} accepted"):
-                        accepted_file_uuid_list.append(file_uuid)
-                    else:
-                        dataset_files_info_response_dict['index_responses'][file_uuid] = index_response_dict[dataset_uuid][file_uuid]
-                dataset_files_info_response_dict['index_responses']["Request of adding <file_uuid> accepted"] = accepted_file_uuid_list
+                    if not file_uuid in dataset_files_info_response_dict['index_responses']:
+                        dataset_files_info_response_dict['index_responses'][file_uuid] = []
+                    for es_index_name in index_response_dict[dataset_uuid][file_uuid].keys():
+                        dataset_files_info_response_dict['index_responses'][file_uuid].append(index_response_dict[dataset_uuid][file_uuid][es_index_name])
 
                 return Response(json.dumps(dataset_files_info_response_dict)), 200
             else:
                 try:
-                    threading.Thread(target=fworker.index_dataset, args=[dataset_uuid]).start()
+                    threading.Thread(target=fworker.index_dataset, args=[theDataset]).start()
                     # discard the index_response_dict, as it will be logged at the INFO level by the FileWorker
 
-                    logger.info(f"Started to clear documents for uuid '{dataset_uuid}' from ES index '{app_config['FILES_API_INDEX_NAME']}'.")
+                    logger.info(f"Started to clear documents for uuid '{dataset_uuid}' from the Elasticsearch index.")
                 except Exception as e:
                     logger.exception(e)
                     raise Exception(e)
 
-                return f"Request to load file info documents for uuid '{dataset_uuid}' into ES index '{app_config['FILES_API_INDEX_NAME']}' accepted", 202
+                return f"Request to load file info documents for uuid '{dataset_uuid}' into the Elasticsearch index accepted", 202
 
         except requests.exceptions.HTTPError as he:
             eMsg = he.response.text if he.response.text is not None else 'Undescribed HTTPError'
@@ -91,7 +90,8 @@ def construct_blueprint(appConfig):
         fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
         # Verify the user is a Data Admin, who can index all datasets
-        fworker.verify_op_permission(aDataset=None)
+        if not fworker.verify_data_admin():
+            raise Exception("Permission denied for requested operation.")
 
         asynchronous = request.args.get('async')
 
@@ -102,13 +102,12 @@ def construct_blueprint(appConfig):
                 threading.Thread(target=fworker.index_all_datasets, args=[]).start()
                 # discard the index_response_dict, as it will be logged at the INFO level by the FileWorker
 
-                logger.info(
-                    f"Started to index file info documents for all Datasets to ES index '{app_config['FILES_API_INDEX_NAME']}'.")
+                logger.info("Started to index file info documents for all Datasets to the public and private Elasticsearch indices.")
             except Exception as e:
                 logger.exception(e)
                 raise Exception(e)
 
-        return f"Request to index file info documents for all Datasets into ES index '{app_config['FILES_API_INDEX_NAME']}' accepted", 202
+        return "Request to index file info documents for all Datasets into the public and private Elasticsearch indices accepted", 202
 
     # end construct_blueprint()
     return file_info_index_blueprint

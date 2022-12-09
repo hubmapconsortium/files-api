@@ -4,6 +4,7 @@ import re
 import threading
 import json
 from http.client import HTTPException
+from sys import getsizeof
 
 import requests
 from types import MappingProxyType
@@ -24,7 +25,7 @@ UMLS_AGE_GROUP_CUI = 'C0001779'
 UMLS_RACE_GROUP_CUI = 'C0034510'
 
 # Yaml file to be parsed for organ description lookup
-ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/master/src/search-schema/data/definitions/enums/organ_types.yaml'
+ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/organ_types.yaml'
 # Yaml file to be parsed for tissue description lookup
 TISSUE_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/tissue_sample_types.yaml'
 ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
@@ -51,6 +52,12 @@ SQL_SELECT_FILES_DESCENDED_FROM_ANCESTOR_UUID = \
      "  INNER JOIN ancestors ON ancestors.DESCENDANT_UUID = files.UUID"
      " WHERE ancestors.ANCESTOR_UUID = %s"
      )
+
+from enum import Enum
+class DatasetIndexScopeType(Enum):
+    GENETIC = 'GENETIC'
+    NONPUBLIC = 'NONPUBLIC'
+    PUBLIC = 'PUBLIC'
 
 class FileWorker:
 
@@ -83,10 +90,11 @@ class FileWorker:
             self.dbName = appConfig['DB_NAME']
             self.dbUsername = appConfig['DB_USERNAME']
             self.dbPassword = appConfig['DB_PASSWORD']
-            self.uuid_api_url = appConfig['UUID_API_URL']
-            self.entity_api_url = appConfig['ENTITY_API_URL']
-            self.search_api_url = appConfig['SEARCH_API_URL']
-            self.files_api_index_name = appConfig['FILES_API_INDEX_NAME']
+            self.uuid_api_url = appConfig['UUID_API_URL'].strip('/')
+            self.entity_api_url = appConfig['ENTITY_API_URL'].strip('/')
+            self.search_api_url = appConfig['SEARCH_API_URL'].strip('/')
+            self.files_api_public_index = appConfig['FILES_API_PUBLIC_INDEX']
+            self.files_api_nonpublic_index = appConfig['FILES_API_NONPUBLIC_INDEX']
 
             self.aws_access_key_id = appConfig['AWS_ACCESS_KEY_ID']
             self.aws_secret_access_key = appConfig['AWS_SECRET_ACCESS_KEY']
@@ -232,12 +240,12 @@ class FileWorker:
 
 
     # Rely on the search-api to delete all documents matching the provided Dataset UUID
-    def _clear_dataset_file_info_docs(self, dataset_uuid):
+    def _clear_dataset_file_info_docs(self, es_index_name, dataset_uuid):
         # If the self.user_token is not set for this instance, do not process request.
         if not self.user_token:
             raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required", 401))
 
-        post_url = self.search_api_url + '/clear-docs/' + self.files_api_index_name + '/' + dataset_uuid
+        post_url = self.search_api_url + '/clear-docs/' + es_index_name + '/' + dataset_uuid
         headers = {'Authorization': 'Bearer ' + self.user_token}
         params = {'async': True}
         rspn = requests.post(f"{post_url}", headers=headers, params=params)
@@ -298,7 +306,7 @@ class FileWorker:
     # Use the entity-api service to get all the entities of a given type.
     # input: An entity type recognized by the entity-api
     # output: @TODO YAML with info from Neo4j
-    def _get_all_entities(self, entity_type):
+    def _get_all_entities_identifiers(self, entity_type):
         # Rely on the type checking the entity-api does with entity-type.
         get_url = self.entity_api_url + '/' + entity_type + '/entities'
         response = requests.get(get_url)
@@ -309,16 +317,16 @@ class FileWorker:
     # Use the search-api service "add" the document to the index for files
     # input: An entity type recognized by the entity-api
     # output: @TODO YAML with info from Neo4j
-    def _write_or_update_doc(self, es_doc, id, index_name):
+    def _write_or_update_doc(self, es_index_name, es_doc, file_id):
         # Rely on the search-api to determine if writing or updating.
 
         # If the self.user_token is not set for this instance, do not process request.
         if not self.user_token:
             raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
 
-        post_url = self.search_api_url + '/add/' + id + '/' + index_name
+        post_url = self.search_api_url + '/add/' + file_id + '/' + es_index_name
         headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.user_token}
-        params = {'async': True} #@TODO-KBKBKB undo hard coding, pass all the way down from files-api endpoint call?
+        params = {'async': True}
         rspn = requests.post(f"{post_url}", headers=headers, data=json.dumps(es_doc), params=params)
         return rspn
 
@@ -386,9 +394,6 @@ class FileWorker:
     #                   DATA_UPLOAD - the file was upload into the upload space for datasets usually via Globus
     #
     def get_dataset_file_infos(self, dataset_uuid):
-
-        # @TODO-Once non-primary Dataset prov-info can be retrieved, test with Datasets descended from
-        # multiple Datasets, like 65b92f0191dc73e9470f46ceb217054d or 77cdce75f41a8b9260727070b16b2ae5
 
         # Get what uuid-api knows about the Dataset's files
         files_info = self._get_dataset_files_info(dataset_uuid)
@@ -511,7 +516,6 @@ class FileWorker:
                             '''
 
             # The file extension is everything after the last period, if there is any period. Blank otherwise.
-            #@TODO-KBKBKB-peel off the leaf of rel_path, which should be just the file name, and find file_extension of its last period. Align with file-api-spec.yaml
             file_info['file_extension'] = file_info['rel_path'][file_info['rel_path'].rindex('.')+1:] if file_info['rel_path'].find('.') > -1 else ''
             file_info['samples'] = tissue_samples_dict_list
             file_info['organs'] = organs_dict_list
@@ -557,13 +561,13 @@ class FileWorker:
     # Use the entity-api service to get all the entities of a given type.
     # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
     # output: @TODO YAML with info from Neo4j
-    def get_all_public_datasets(self):
+    def get_all_nongenetic_datasets(self):
         # Rely on the type checking the entity-api does with entity-type.
-        theDatasets = self._get_all_entities('DATASET')
+        theDatasets = self._get_all_entities_identifiers('DATASET')
 
         datasetIdentifierList = []
         for aDataset in theDatasets:
-            if aDataset['status'] == 'Published' and not aDataset['contains_human_genetic_sequences']:
+            if not aDataset['contains_human_genetic_sequences']:
                 datasetIdentifierList.append(aDataset['uuid'])
         return datasetIdentifierList
 
@@ -578,132 +582,99 @@ class FileWorker:
     # Use the entity-api service to get all the entities of a given type.
     # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
     # output: @TODO YAML with info from Neo4j
-    def write_or_update_doc(self, file_info):
-        self.logger.debug(f"Putting file_info of size {len(file_info)} in index {self.files_api_index_name}.")
+    def write_or_update_doc(self, es_index_name, file_info):
+        self.logger.debug(  f"Putting file_info with {len(file_info)} entries of size"
+                            f" {getsizeof(json.dumps(file_info))} bytes in index {es_index_name}.")
         resp = self._write_or_update_doc(es_doc=file_info,
-                                         id=file_info['file_uuid'],
-                                         index_name=self.files_api_index_name)
+                                         es_index_name=es_index_name,
+                                         file_id=file_info['file_uuid'])
         if resp.status_code not in [200, 202]:
             raise requests.exceptions.HTTPError(response=resp)
         else:
-            return resp #@TODO-should we transform queuing msg to something nice?
+            return resp
 
-    # Verify any requirements or permissions need to proceed with indexing operations for
-    # the specified Dataset.  If no Dataset is specified, verify admin privileges to index all Datasets.
-    def verify_op_permission(self, aDataset):
-        if aDataset is None:
-            if self.auth_helper.has_data_admin_privs(self.user_token):
-                return True
-            else:
-                raise Exception(f"Permission denied for requested operation.")
+    # Return indication whether the user token has admin privileges.
+    def verify_data_admin(self):
+        return self.auth_helper.has_data_admin_privs(self.user_token)
 
-        # Confirm the retrieved Dataset is a public Dataset
-        # Align constants with search-api indexer_base.py Indexer.DATASET_STATUS_PUBLISHED
-        if aDataset['status'] != 'Published' or aDataset['contains_human_genetic_sequences']:
-            raise Exception(f"Only public datasets may be indexed. 'status'={aDataset['status']} or"
-                            + f" 'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
-                            + " not allowed")
-
+    def verify_user_in_write_group(self, aDataset):
         # Verify the user has write permission for the entity whose documents are to be cleared from the ES index
         entity_group_uuid = aDataset['group_uuid']
-        if not entity_group_uuid in self.user_groups_by_id_dict.keys() and \
-                not self.auth_helper.has_data_admin_privs(self.user_token):
-            raise Exception(f"Permission denied for modifying ES index entries for '{aDataset['uuid']}'.")
+        return entity_group_uuid in self.user_groups_by_id_dict.keys()
 
-        return True
+    # Return a value from DatasetIndexScopeType which can be used to determine
+    # which Elasticsearch index the Dataset's documents should be put into.
+    def get_dataset_scope(self, aDataset):
+        # Confirm the retrieved Dataset is a public Dataset
+        # Align constants with search-api indexer_base.py Indexer.DATASET_STATUS_PUBLISHED
+        if aDataset['contains_human_genetic_sequences']:
+            return DatasetIndexScopeType.GENETIC
+        elif aDataset['status'] == 'Published': # and preceding indicates not genetic
+            return DatasetIndexScopeType.PUBLIC
+        else:
+            return DatasetIndexScopeType.NONPUBLIC
 
     # Get all the files for a Dataset, build a file info document for each, and add each file info document to
     # the Elasticsearch index.
-    def index_dataset(self, aDatasetUUID):
+    def index_dataset(self, aDataset):
 
-        isBulk = False #@TODO-KBKBKB ditch this variable if Elasticsearch Bulk API can easily replace N search-api threads for a Dataset with N files.
-        if isBulk:
-            pass
-            '''
-            @TODO-KBKBKB-is we is or is we ain't doin' Bulk API if we expect requests overwhelming Elasticsearch?
-            # Create a fresh file infos document for the specified Dataset from the dataset-file-info endpoint. @TODO-if the "reindex" option is specified but the file-info cannot be created, should this return normal, empty response, and effectively go on to delete from index?  Or should it halt before removing from the index, and tell them to use a DELETE endpoint if they want to delete? Can index contain an empty doc for a Dataset with no files yet?
-            # Connect to the database and retrieve the information for files
-            # descended from the entity.
-            dataset_files_info_response = self.get_dataset_file_infos(aDatasetUUID)
-            files_info_list = dataset_files_info_response.get_json()
-
-            if not files_info_list:
-                self.logger.error(
-                    f"Unable to retrieve the file set JSON to do indexing for dataset_uuid={aDatasetUUID}")
-                # @TODO-verify with [] response. Decide if Exception should actually be raised.
-                raise Exception(f"Unexpected JSON content for dataset_uuid={aDatasetUUID}")
-
-            # Try clearing the documents for the Dataset before inserting current documents, in case
-            # Files were removed from the Dataset since initially put in the index.  But don't skip
-            # inserting files if deletion is not successful.
-            try:
-                self._clear_dataset_file_info_docs(aDatasetUUID)
-            except Exception as e:
-                self.logger.error(f"While clearing existing file info documents from {self.files_api_index_name} for"
-                                  f" {aDatasetUUID}, encountered {e.text}. Continuing with insertion.")
-            self.logger.critical("@TODO-KBKBKB implement this with the Elasticsearch Bulk API.")
-            # Re-work the full dictionary of responses from each search-api /add operation into
-            # something more compact from the files-api.
-            index_response_dict = {}
-
-            ELASTICSEARCH_REQUEST_ACTION_DELIMITER = '\n'
-            https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
-            POST / <target>/_bulk
-            POST / _bulk
-            {"index": {"_index": "my_index", "_id": "1", "dynamic_templates": {"work_location": "geo_point"}}}
-            {"field": "value1", "work_location": "41.12,-71.34", "raw_location": "41.12,-71.34"}
-            {"create": {"_index": "my_index", "_id": "2", "dynamic_templates": {"home_location": "geo_point"}}}
-            {"field": "value2", "home_location": "41.12,-71.34"}
-            {"index": {"_index": "test", "_id": "1"}}
-            {"field1": "value1"}
-            for file_info_dict in files_info_list:
-                bulk_ES_request = f"POST /{self.files_api_index_name}/_bulk{ELASTICSEARCH_REQUEST_ACTION_DELIMITER}"
-
-
-            bulk_load_resp = self.bulk_load_docs(bulk_ES_request)
-            index_response_dict[file_info_dict['file_uuid']] = bulk_load_resp.text
-            self.logger.info(f"File {file_info_dict['file_uuid']} for dataset_uuid={aDatasetUUID} returned '{bulk_load_resp.text}'")
-
-            return index_response_dict
-            '''
+        # Any needed data admin privileges should have been checked before reaching this method.
+        # Verify Dataset attributes are compatible with index inclusion, and which index should contain them.
+        # N.B. does not test for "primary" Datasets, which may cause an exception, but which
+        #      should also be allowed to be indexed in the near future.
+        dataset_scope = self.get_dataset_scope(aDataset=aDataset)
+        if dataset_scope == DatasetIndexScopeType.GENETIC:
+            raise Exception(
+                f"Dataset {aDataset['uuid']} with 'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
+                + " is not allowed in Elasticsearch indices.")
+        elif dataset_scope == DatasetIndexScopeType.PUBLIC:
+            target_indices = [self.files_api_public_index, self.files_api_nonpublic_index]
+        elif dataset_scope == DatasetIndexScopeType.NONPUBLIC:
+            target_indices = [self.files_api_nonpublic_index]
         else:
-            # Create a fresh file infos document for the specified Dataset from the dataset-file-info endpoint. @TODO-if the "reindex" option is specified but the file-info cannot be created, should this return normal, empty response, and effectively go on to delete from index?  Or should it halt before removing from the index, and tell them to use a DELETE endpoint if they want to delete? Can index contain an empty doc for a Dataset with no files yet?
-            # Connect to the database and retrieve the information for files
-            # descended from the entity.
-            dataset_files_info_response = self.get_dataset_file_infos(aDatasetUUID)
-            files_info_list = dataset_files_info_response.get_json()
+            self.logger.error(f"Unrecognized state for dataset_scope={dataset_scope} for aDataset['uuid']={aDataset['uuid']}.")
+            raise Exception(f"Unable to determine appropriate index for aDataset['uuid']={aDataset['uuid']}. See logs.")
+        self.logger.info(f"Target ES indexes for dataset {aDataset['uuid']} file info documents: {str(target_indices)}.")
 
-            if not files_info_list:
-                # @TODO-verified reach here with [] file_info_list. Decide if Exception should actually be raised.
-                # if this is a Dataset with no files, but the response is fine, do not log an error
-                if dataset_files_info_response.status_code == 200:
-                    pass
-                else:
-                    self.logger.error(f"Unable to retrieve the file set JSON to do indexing for dataset_uuid={aDatasetUUID}")
-                    raise Exception(f"Unexpected JSON content getting file info documents for dataset_uuid={aDatasetUUID}")
+        # Create a fresh file infos document for the specified Dataset from the dataset-file-info endpoint.
+        # Connect to the database and retrieve the information for files
+        # descended from the entity.
+        dataset_files_info_response = self.get_dataset_file_infos(aDataset['uuid'])
+        files_info_list = dataset_files_info_response.get_json()
 
-            # Try clearing the documents for the Dataset before inserting current documents, in case
-            # Files were removed from the Dataset since initially put in the index.  But don't skip
-            # inserting files if deletion is not successful.
-            try:
-                self._clear_dataset_file_info_docs(aDatasetUUID)
-            except Exception as e:
-                self.logger.error(f"While clearing existing file info documents from {self.files_api_index_name} for"
-                                  f" {aDatasetUUID}, encountered {e.text}. Continuing with insertion.")
+        if not files_info_list:
+            # if this is a Dataset with no files, but the response is fine, do not log an error
+            if dataset_files_info_response.status_code == 200:
+                pass
+            else:
+                self.logger.error(f"Unable to retrieve the file set JSON to do indexing for aDataset['uuid']={aDataset['uuid']}")
+                raise Exception(f"Unexpected JSON content getting file info documents for aDataset['uuid']={aDataset['uuid']}")
 
-            # Re-work the full dictionary of responses from each search-api /add operation into
-            # something more compact from the files-api.
-            self.logger.info(f"For Dataset '{aDatasetUUID}'."
-                             f" inserting {len(files_info_list)} file info documents"
-                             f" into {self.files_api_index_name}."
-                             )
-            index_response_dict = {}
-            for file_info_dict in files_info_list:
-                file_resp = self.write_or_update_doc(file_info_dict)
-                index_response_dict[file_info_dict['file_uuid']] = file_resp.text
-                #@TODO-KBKBKB undo, after not I/O bound...self.logger.info(f"File {file_info_dict['file_uuid']} for dataset_uuid={aDatasetUUID} returned '{file_resp.text}'")
+        # Try clearing the documents for the Dataset before inserting current documents, in case
+        # Files were removed from the Dataset since initially put in the index.  But don't skip
+        # inserting files if deletion is not successful.
+        try:
+            for target_index in target_indices:
+                self._clear_dataset_file_info_docs(es_index_name=target_index, dataset_uuid=aDataset['uuid'])
+        except Exception as e:
+            self.logger.error(f"While clearing existing file info documents from {target_index} for"
+                              f" {aDataset['uuid']}, encountered {e.text}. Continuing with insertion.")
 
-            return index_response_dict
+        # Re-work the full dictionary of responses from each search-api /add operation into
+        # something more compact from the files-api.
+        self.logger.info(f"For Dataset '{aDataset['uuid']}'."
+                         f" inserting {len(files_info_list)} file info documents"
+                         f" into {str(target_indices)}."
+                         )
+        es_response_dict = {}
+        for file_info_dict in files_info_list:
+            file_response_dict = {}
+            for target_index in target_indices:
+                file_resp = self.write_or_update_doc(es_index_name=target_index, file_info=file_info_dict)
+                file_response_dict[target_index] = file_resp.text
+            es_response_dict[file_info_dict['file_uuid']] = file_response_dict
+
+        return es_response_dict
 
     # Get all the Datasets, and loop through each one.  Add a file info document to
     # the Elasticsearch index for each File in an indexable Dataset.
@@ -713,54 +684,44 @@ class FileWorker:
         skipped_datasets_list = []
 
         try:
-            datasetList = self.get_all_public_datasets()
-            # @TODO-KBKBKB undo
-            #datasetList = datasetList[11:30]
-            #datasetList = ['654418415bed5ecb9596b17a0320a2c6', '077f7862f6306055899374c7807a30c3', 'd3130f4a89946cc6b300b115a3120b7a', 'cd880c54e0095bad5200397588eccf81', 'a296c763352828159f3adfa495becf3e', '298caad597d4a9eaaa3edbc89d79db82','073cad035ce246a0134e2214569adde9', 'b6eba6afe660a8a85c2648e368b0cf9f']
-            # @TODO-KBKBKB end undo
-            self.logger.info(f"Processing {len(datasetList)} Datasets for {self.files_api_index_name} index inclusion.")
+            datasetList = self.get_all_nongenetic_datasets()
+
+            self.logger.info(f"Processing {len(datasetList)} Datasets for inclusion in Elasticsearch indices.")
             index_response_dict = {}
 
             for dataset_uuid in datasetList:
                 try:
                     theDataset = self.get_entity(entity_id=dataset_uuid, entity_type_check='DATASET')
 
-                    # Even though verified admin privileges to get this far, verify Dataset attributes are
-                    # compatible with index inclusion.
-                    # N.B. does not test for "primary" Datasets, which may cause an exception below, but which
-                    #      should also be allowed to be indexed in the near future.
-                    self.verify_op_permission(aDataset=theDataset)
-
-                    index_response_dict[dataset_uuid] = self.index_dataset(aDatasetUUID=dataset_uuid)
+                    index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset)
 
                     inserted_datasets_list.append(dataset_uuid)
-                    self.logger.info(f"Finished updating {self.files_api_index_name} for all file info documents"
+                    self.logger.info(f"Finished updating Elasticsearch indices for {len(index_response_dict[dataset_uuid])} file info documents"
                                      f" for Dataset '{dataset_uuid}'.")
                 except Exception as eDataset:
-                    if eDataset.response and \
+                    if hasattr(eDataset,'response') and \
+                       eDataset.response and \
                        eDataset.response.status_code == 400 and \
                        re.match(".*Make sure this is a Primary Dataset.*", str(eDataset.response.text)):
                         skipped_datasets_list.append(dataset_uuid)
-                        self.logger.warning(f"While updating {self.files_api_index_name} for all file info documents"
+                        self.logger.warning(f"While updating Elasticsearch indices for all file info documents"
                                             f" for Dataset '{dataset_uuid}'"
                                             f", skipped the Dataset. Check if a Primary Dataset.")
                     else:
                         failed_datasets_list.append(dataset_uuid)
-                        self.logger.error(f"While updating {self.files_api_index_name} for all file info documents"
+                        self.logger.error(f"While updating Elasticsearch indices for all file info documents"
                                           f" for Dataset '{dataset_uuid}'"
-                                          f", got '{eDataset.response.text}'.")
+                                          f", got e='{str(eDataset)}'.")
                     # Continue this loop for other Datasets in datasetList
         except Exception as eWholeList:
-            self.logger.error(f"While updating {self.files_api_index_name} with file info documents"
-                              f" for Dataset {dataset_uuid}"
+            self.logger.error(f"While updating Elasticsearch indices with file info documents"
                               f" during 'reindex all'"
                               f", got e='{str(eWholeList)}'.")
             raise Exception(f"An error was encountered while updating"
-                            f" {self.files_api_index_name} with file info documents"
-                            f" for Dataset {dataset_uuid}"
+                            f" Elasticsearch indices with file info documents"
                             f" during 'reindex all'"
                             f" See logs.")
-        self.logger.info(f"Inserted entries for {len(inserted_datasets_list)} Datasets in ES {self.files_api_index_name} index.")
+        self.logger.info(f"Inserted entries for {len(inserted_datasets_list)} Datasets into Elasticsearch indices.")
         self.logger.info(f"Skipped {len(skipped_datasets_list)} Datasets (due to unsupported characteristics).")
         self.logger.info(f"Failed to index {len(failed_datasets_list)} Datasets (due to logged errors).")
         allDatasetResultDict = {}

@@ -48,12 +48,15 @@ def construct_blueprint(appConfig):
         A json containing the file info document for each file in the dataset
     """
     @file_info_blueprint.route('/datasets/<dataset_id>/construct-file-documents', methods=['GET'])
+    # AWS Gateway configuration limits this endpoint to members of the Data-Admin group
     def get_dataset_file_infos(dataset_id):
         try:
             fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
-            fworker.verify_op_permission(aDataset=None)
+            if not fworker.verify_data_admin():
+                # Should never be reached, if AWS Gateway configured per comment by @file_info_blueprint.route()
+                raise Exception("Permission denied for requested operation.")
 
             # Use the uuid-api webservice to check the identifier format and
             # extract the uuid for the entity.
