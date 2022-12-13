@@ -54,7 +54,7 @@ def construct_blueprint(appConfig):
             fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
-            if not fworker.verify_data_admin():
+            if not fworker.verify_user_is_data_admin():
                 # Should never be reached, if AWS Gateway configured per comment by @file_info_blueprint.route()
                 raise Exception("Permission denied for requested operation.")
 

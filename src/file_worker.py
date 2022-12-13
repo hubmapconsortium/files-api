@@ -3,6 +3,7 @@ import logging
 import re
 import threading
 import json
+from datetime import datetime
 from http.client import HTTPException
 from sys import getsizeof
 
@@ -238,26 +239,19 @@ class FileWorker:
 
         return json.dumps(results)
 
-
     # Rely on the search-api to delete all documents matching the provided Dataset UUID
-    def _clear_dataset_file_info_docs(self, es_index_name, dataset_uuid):
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required", 401))
+    def _clear_dataset_file_info_docs(self, es_index_name, dataset_uuid, bearer_token):
 
         post_url = self.search_api_url + '/clear-docs/' + es_index_name + '/' + dataset_uuid
-        headers = {'Authorization': 'Bearer ' + self.user_token}
+        headers = {'Authorization': 'Bearer ' + bearer_token}
         params = {'async': True}
         rspn = requests.post(f"{post_url}", headers=headers, params=params)
         return rspn
 
-    def _get_dataset_files_info(self, dataset_uuid):
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
+    def _get_dataset_files_info(self, dataset_uuid, bearer_token):
 
         get_url = self.uuid_api_url + '/' + dataset_uuid + '/files'
-        response = requests.get(get_url, headers = {'Authorization': 'Bearer ' + self.user_token}, verify = False)
+        response = requests.get(get_url, headers = {'Authorization': 'Bearer ' + bearer_token}, verify = False)
         if response.status_code == 200:
             return json.dumps(response.json())
         elif response.status_code == 303:
@@ -273,13 +267,10 @@ class FileWorker:
     # Use the entity-api service to provenance info of a given Dataset identifier.
     # input: id (hubmap_id or uuid) of a Dataset entity
     # output: YAML with info from Neo4j
-    def _get_dataset_prov_info(self, dataset_id):
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
+    def _get_dataset_prov_info(self, dataset_id, bearer_token):
 
         get_url = self.entity_api_url + '/datasets/' + dataset_id + '/prov-info?include_samples=all&format=json'
-        response = requests.get(get_url, headers={'Authorization': 'Bearer ' + self.user_token}, verify=False)
+        response = requests.get(get_url, headers={'Authorization': 'Bearer ' + bearer_token}, verify=False)
         if response.status_code != 200:
             self.logger.error(f"For dataset_id={dataset_id}, get_url={get_url} returned status_code={response.status_code}: {response.text}.")
             raise requests.exceptions.HTTPError(response=response)
@@ -288,13 +279,10 @@ class FileWorker:
     # Use the entity-api service to get provenance info of a given Dataset identifier.
     # input: id (hubmap_id or uuid) of a Dataset entity
     # output: YAML with info from Neo4j
-    def _get_entity(self, entity_id, entity_type_check=None):
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
+    def _get_entity(self, entity_id, bearer_token, entity_type_check=None):
 
         get_url = self.entity_api_url + '/entities/' + entity_id
-        response = requests.get(get_url, headers={'Authorization': 'Bearer ' + self.user_token}, verify=False)
+        response = requests.get(get_url, headers={'Authorization': 'Bearer ' + bearer_token})
         if response.status_code != 200:
             raise requests.exceptions.HTTPError(response=response)
         if entity_type_check:
@@ -304,31 +292,60 @@ class FileWorker:
         return response.json()
 
     # Use the entity-api service to get all the entities of a given type.
+    # N.B. This uses an entity-api endpoint not accessible through the AWS Gateway, and
+    #      therefore relies upon Docker configuration on the same server.
     # input: An entity type recognized by the entity-api
     # output: @TODO YAML with info from Neo4j
-    def _get_all_entities_identifiers(self, entity_type):
+    def _get_all_entities_identifiers(self, entity_type, bearer_token):
         # Rely on the type checking the entity-api does with entity-type.
         get_url = self.entity_api_url + '/' + entity_type + '/entities'
-        response = requests.get(get_url)
+        response = requests.get(get_url, headers={'Authorization': 'Bearer ' + bearer_token})
         if response.status_code != 200:
             raise requests.exceptions.HTTPError(response=response)
         return response.json()
 
-    # Use the search-api service "add" the document to the index for files
+    # Use the search-api service "add" the document to the index for files.
+    # Rely on the search-api to determine if writing or updating.
     # input: An entity type recognized by the entity-api
     # output: @TODO YAML with info from Neo4j
-    def _write_or_update_doc(self, es_index_name, es_doc, file_id):
-        # Rely on the search-api to determine if writing or updating.
-
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
+    def _write_or_update_doc(self, es_index_name, es_doc_dict, bearer_token):
+        file_id = es_doc_dict['file_uuid']
+        self.logger.debug(  f"For file_id={file_id}"
+                            f" putting file_info with {len(es_doc_dict)} entries of size"
+                            f" {getsizeof(json.dumps(es_doc_dict))} bytes in index {es_index_name}.")
 
         post_url = self.search_api_url + '/add/' + file_id + '/' + es_index_name
-        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self.user_token}
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + bearer_token}
         params = {'async': True}
-        rspn = requests.post(f"{post_url}", headers=headers, data=json.dumps(es_doc), params=params)
+        rspn = requests.post(f"{post_url}", headers=headers, data=json.dumps(es_doc_dict), params=params)
+        if rspn.status_code not in [200, 202]:
+            raise requests.exceptions.HTTPError(response=rspn)
         return rspn
+
+    # Use the entity-api service to get all the entities of a given type.
+    # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
+    # output: @TODO YAML with info from Neo4j
+    def _get_all_nongenetic_datasets(self, bearer_token):
+        # Rely on the type checking the entity-api does with entity-type.
+        theDatasets = self._get_all_entities_identifiers('DATASET', bearer_token=bearer_token)
+
+        datasetIdentifierList = []
+        for aDataset in theDatasets:
+            if not aDataset['contains_human_genetic_sequences']:
+                datasetIdentifierList.append(aDataset['uuid'])
+        return datasetIdentifierList
+
+    # Return a value from DatasetIndexScopeType which can be used to determine
+    # which Elasticsearch index the Dataset's documents should be put into.
+    def _get_dataset_scope(self, aDataset):
+        # Confirm the retrieved Dataset is a public Dataset
+        # Align constants with search-api indexer_base.py Indexer.DATASET_STATUS_PUBLISHED
+        if aDataset['contains_human_genetic_sequences']:
+            return DatasetIndexScopeType.GENETIC
+        elif aDataset['status'] == 'Published': # and preceding indicates not genetic
+            return DatasetIndexScopeType.PUBLIC
+        else:
+            return DatasetIndexScopeType.NONPUBLIC
 
     # Test the connection to the supporting database the self.hmdb variable is
     # connected to during construction.
@@ -393,14 +410,16 @@ class FileWorker:
     #                   INGEST_PORTAL_UPLOAD - the file was uploaded into the space for file uploads from the Ingest UI
     #                   DATA_UPLOAD - the file was upload into the upload space for datasets usually via Globus
     #
-    def get_dataset_file_infos(self, dataset_uuid):
+    def get_dataset_file_infos(self, dataset_uuid, bearer_token=None):
+        if not bearer_token:
+            bearer_token = self.user_token
 
         # Get what uuid-api knows about the Dataset's files
-        files_info = self._get_dataset_files_info(dataset_uuid)
+        files_info = self._get_dataset_files_info(dataset_uuid, bearer_token=bearer_token)
         files_list = json.loads(files_info)
 
         # Get what entity-api knows about the Dataset's files and ancestors
-        entity_prov_info = self._get_dataset_prov_info(dataset_uuid)
+        entity_prov_info = self._get_dataset_prov_info(dataset_uuid, bearer_token=bearer_token)
 
         tissue_samples_dict_list = []
         organs_dict_list = []
@@ -453,7 +472,7 @@ class FileWorker:
             organ_dict = {}
             organ_dict['uuid'] = organ_uuid
 
-            organ_info = self._get_entity(entity_id=organ_uuid, entity_type_check='Sample')
+            organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check='Sample')
             if not organ_info['specimen_type'] or organ_info['specimen_type'] != 'organ':
                 continue
             donor_dict['uuid'] = organ_info['direct_ancestor']['uuid'] if organ_info['direct_ancestor']['uuid'] else None
@@ -466,7 +485,8 @@ class FileWorker:
                 organ_dict['type'] = self.organ_type_dict[organ_dict['type_code']] if organ_dict['type_code'] and self.organ_type_dict[organ_dict['type_code']] else None
             except KeyError as ke:
                 organ_dict['type'] = 'Unrecognized organ code: ' + organ_dict['type_code']
-            if 'organ_donor_data' in organ_info['direct_ancestor']['metadata']:
+            if 'metadata' in organ_info['direct_ancestor'] and \
+                'organ_donor_data' in organ_info['direct_ancestor']['metadata']:
                 for concept in organ_info['direct_ancestor']['metadata']['organ_donor_data']:
                     if concept['grouping_concept'] == UMLS_AGE_GROUP_CUI:
                         donor_dict['age'] = float(concept['data_value']) if concept['data_value'] else None
@@ -524,6 +544,7 @@ class FileWorker:
             file_info['data_types'] = entity_prov_info['dataset_data_types']
             file_info.pop('path')
             file_info.pop('base_dir')
+            file_info['file_info_refresh_timestamp'] = datetime.utcnow().isoformat()
             dataset_file_info_list.append(file_info)
 
         results_json = json.dumps(dataset_file_info_list)
@@ -539,17 +560,35 @@ class FileWorker:
         #                                               ,key_uuid=dataset_uuid)
         #                     , 303)
 
+    # Use the entity-api service to get the entity for the given identifier, if
+    # the entity-type @TODO
+    # input: id (hubmap_id or uuid) of an entity
+    # output: the @TODO of the entity
+    def get_entity(self, entity_id, bearer_token=None, entity_type_check=None):
+        if not bearer_token:
+            bearer_token = self.user_token
+        theEntity = self._get_entity(entity_id=entity_id, bearer_token=bearer_token, entity_type_check=entity_type_check)
+        return theEntity
+
+    # Return indication whether the user token has admin privileges.
+    def verify_user_is_data_admin(self):
+        return self.auth_helper.has_data_admin_privs(self.user_token)
+
+    def verify_user_in_write_group(self, aDataset):
+        # Verify the user has write permission for the entity whose documents are to be cleared from the ES index
+        entity_group_uuid = aDataset['group_uuid']
+        return entity_group_uuid in self.user_groups_by_id_dict.keys()
+
     # Use the uuid-api service to find out the uuid of a given identifier, for
     # use with endpoints requiring a uuid as the identifier.
     # input: id (hubmap_id or uuid) of an entity
     # output: the uuid of the entity
-    def get_identifier_info(self, entity_id, entity_type_check=None):
-        # If the self.user_token is not set for this instance, do not process request.
-        if not self.user_token:
-            raise requests.exceptions.HTTPError(response=Response("Valid Globus groups token required",401))
+    def get_identifier_info(self, entity_id, entity_type_check=None, bearer_token=None):
+        if not bearer_token:
+            bearer_token = self.user_token
 
         get_url = self.uuid_api_url + '/uuid/' + entity_id
-        response = requests.get(get_url, headers = {'Authorization': 'Bearer ' + self.user_token}, verify = False)
+        response = requests.get(get_url, headers = {'Authorization': 'Bearer ' + bearer_token}, verify = False)
         if response.status_code != 200:
             raise requests.exceptions.HTTPError(response=response)
         if entity_type_check:
@@ -558,71 +597,17 @@ class FileWorker:
                 raise Exception(f"Identifier {entity_id} type is {id_attributes['type']}, not {entity_type_check}.")
         return response.json()['uuid']
 
-    # Use the entity-api service to get all the entities of a given type.
-    # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
-    # output: @TODO YAML with info from Neo4j
-    def get_all_nongenetic_datasets(self):
-        # Rely on the type checking the entity-api does with entity-type.
-        theDatasets = self._get_all_entities_identifiers('DATASET')
-
-        datasetIdentifierList = []
-        for aDataset in theDatasets:
-            if not aDataset['contains_human_genetic_sequences']:
-                datasetIdentifierList.append(aDataset['uuid'])
-        return datasetIdentifierList
-
-    # Use the entity-api service to get the entity for the given identifier, if
-    # the entity-type @TODO
-    # input: id (hubmap_id or uuid) of an entity
-    # output: the @TODO of the entity
-    def get_entity(self, entity_id, entity_type_check=None):
-        theEntity = self._get_entity(entity_id=entity_id, entity_type_check=entity_type_check)
-        return theEntity
-
-    # Use the entity-api service to get all the entities of a given type.
-    # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
-    # output: @TODO YAML with info from Neo4j
-    def write_or_update_doc(self, es_index_name, file_info):
-        self.logger.debug(  f"Putting file_info with {len(file_info)} entries of size"
-                            f" {getsizeof(json.dumps(file_info))} bytes in index {es_index_name}.")
-        resp = self._write_or_update_doc(es_doc=file_info,
-                                         es_index_name=es_index_name,
-                                         file_id=file_info['file_uuid'])
-        if resp.status_code not in [200, 202]:
-            raise requests.exceptions.HTTPError(response=resp)
-        else:
-            return resp
-
-    # Return indication whether the user token has admin privileges.
-    def verify_data_admin(self):
-        return self.auth_helper.has_data_admin_privs(self.user_token)
-
-    def verify_user_in_write_group(self, aDataset):
-        # Verify the user has write permission for the entity whose documents are to be cleared from the ES index
-        entity_group_uuid = aDataset['group_uuid']
-        return entity_group_uuid in self.user_groups_by_id_dict.keys()
-
-    # Return a value from DatasetIndexScopeType which can be used to determine
-    # which Elasticsearch index the Dataset's documents should be put into.
-    def get_dataset_scope(self, aDataset):
-        # Confirm the retrieved Dataset is a public Dataset
-        # Align constants with search-api indexer_base.py Indexer.DATASET_STATUS_PUBLISHED
-        if aDataset['contains_human_genetic_sequences']:
-            return DatasetIndexScopeType.GENETIC
-        elif aDataset['status'] == 'Published': # and preceding indicates not genetic
-            return DatasetIndexScopeType.PUBLIC
-        else:
-            return DatasetIndexScopeType.NONPUBLIC
-
     # Get all the files for a Dataset, build a file info document for each, and add each file info document to
     # the Elasticsearch index.
-    def index_dataset(self, aDataset):
+    def index_dataset(self, aDataset, bearer_token=None):
+        if not bearer_token:
+            bearer_token = self.user_token
 
         # Any needed data admin privileges should have been checked before reaching this method.
         # Verify Dataset attributes are compatible with index inclusion, and which index should contain them.
         # N.B. does not test for "primary" Datasets, which may cause an exception, but which
         #      should also be allowed to be indexed in the near future.
-        dataset_scope = self.get_dataset_scope(aDataset=aDataset)
+        dataset_scope = self._get_dataset_scope(aDataset=aDataset)
         if dataset_scope == DatasetIndexScopeType.GENETIC:
             raise Exception(
                 f"Dataset {aDataset['uuid']} with 'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
@@ -639,7 +624,7 @@ class FileWorker:
         # Create a fresh file infos document for the specified Dataset from the dataset-file-info endpoint.
         # Connect to the database and retrieve the information for files
         # descended from the entity.
-        dataset_files_info_response = self.get_dataset_file_infos(aDataset['uuid'])
+        dataset_files_info_response = self.get_dataset_file_infos(aDataset['uuid'], bearer_token=bearer_token)
         files_info_list = dataset_files_info_response.get_json()
 
         if not files_info_list:
@@ -655,7 +640,7 @@ class FileWorker:
         # inserting files if deletion is not successful.
         try:
             for target_index in target_indices:
-                self._clear_dataset_file_info_docs(es_index_name=target_index, dataset_uuid=aDataset['uuid'])
+                self._clear_dataset_file_info_docs(es_index_name=target_index, dataset_uuid=aDataset['uuid'], bearer_token=bearer_token)
         except Exception as e:
             self.logger.error(f"While clearing existing file info documents from {target_index} for"
                               f" {aDataset['uuid']}, encountered {e.text}. Continuing with insertion.")
@@ -670,7 +655,9 @@ class FileWorker:
         for file_info_dict in files_info_list:
             file_response_dict = {}
             for target_index in target_indices:
-                file_resp = self.write_or_update_doc(es_index_name=target_index, file_info=file_info_dict)
+                file_resp = self._write_or_update_doc(es_index_name=target_index,
+                                                      es_doc_dict=file_info_dict,
+                                                      bearer_token=bearer_token)
                 file_response_dict[target_index] = file_resp.text
             es_response_dict[file_info_dict['file_uuid']] = file_response_dict
 
@@ -684,25 +671,31 @@ class FileWorker:
         skipped_datasets_list = []
 
         try:
-            datasetList = self.get_all_nongenetic_datasets()
+            # Anticipating this method is a long-running process, use the internal, non-expiring token to
+            # complete the following loop, despite the status of the token AWS Gateway checked to limit this
+            # functionality to Data Admins.
+            durable_token = self.user_token #replace with self.auth_helper.getProcessSecret()
+
+            datasetList = self._get_all_nongenetic_datasets(bearer_token=durable_token)
 
             self.logger.info(f"Processing {len(datasetList)} Datasets for inclusion in Elasticsearch indices.")
             index_response_dict = {}
 
             for dataset_uuid in datasetList:
                 try:
-                    theDataset = self.get_entity(entity_id=dataset_uuid, entity_type_check='DATASET')
+                    theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
 
-                    index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset)
+                    index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
 
                     inserted_datasets_list.append(dataset_uuid)
                     self.logger.info(f"Finished updating Elasticsearch indices for {len(index_response_dict[dataset_uuid])} file info documents"
                                      f" for Dataset '{dataset_uuid}'.")
                 except Exception as eDataset:
                     if hasattr(eDataset,'response') and \
-                       eDataset.response and \
+                       hasattr(eDataset.response, 'status_code') and \
                        eDataset.response.status_code == 400 and \
-                       re.match(".*Make sure this is a Primary Dataset.*", str(eDataset.response.text)):
+                       hasattr(eDataset.response, 'text') and \
+                       re.search("Make sure this is a Primary Dataset", str(eDataset.response.text)):
                         skipped_datasets_list.append(dataset_uuid)
                         self.logger.warning(f"While updating Elasticsearch indices for all file info documents"
                                             f" for Dataset '{dataset_uuid}'"
@@ -711,12 +704,12 @@ class FileWorker:
                         failed_datasets_list.append(dataset_uuid)
                         self.logger.error(f"While updating Elasticsearch indices for all file info documents"
                                           f" for Dataset '{dataset_uuid}'"
-                                          f", got e='{str(eDataset)}'.")
+                                          f", got eDataset='{eDataset}'.")
                     # Continue this loop for other Datasets in datasetList
         except Exception as eWholeList:
             self.logger.error(f"While updating Elasticsearch indices with file info documents"
                               f" during 'reindex all'"
-                              f", got e='{str(eWholeList)}'.")
+                              f", got e='{eWholeList}'.")
             raise Exception(f"An error was encountered while updating"
                             f" Elasticsearch indices with file info documents"
                             f" during 'reindex all'"
