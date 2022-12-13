@@ -29,7 +29,7 @@ def construct_blueprint(appConfig):
             # Specify argument to confirm dataset_id is for a Dataset entity.
             theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check='DATASET')
 
-            if not fworker.verify_user_in_write_group(aDataset=theDataset) and not fworker.verify_data_admin():
+            if not fworker.verify_user_in_write_group(aDataset=theDataset) and not fworker.verify_user_is_data_admin():
                 raise Exception(f"Permission denied for modifying ES index entries for '{theDataset['uuid']}'.")
 
             dataset_uuid = theDataset['uuid']
@@ -90,7 +90,7 @@ def construct_blueprint(appConfig):
         fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
         # Verify the user is a Data Admin, who can index all datasets
-        if not fworker.verify_data_admin():
+        if not fworker.verify_user_is_data_admin():
             raise Exception("Permission denied for requested operation.")
 
         asynchronous = request.args.get('async')
