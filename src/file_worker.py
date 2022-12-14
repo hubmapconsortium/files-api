@@ -278,7 +278,9 @@ class FileWorker:
 
     # Use the entity-api service to get provenance info of a given Dataset identifier.
     # input: id (hubmap_id or uuid) of a Dataset entity
-    # output: YAML with info from Neo4j
+    # output: JSON with info from Neo4j. Exception raised if response is not 200, or
+    #         if the returned JSON does not contain an entity match the type specified in
+    #         the optional argument entity_type_check.
     def _get_entity(self, entity_id, bearer_token, entity_type_check=None):
 
         get_url = self.entity_api_url + '/entities/' + entity_id
@@ -322,9 +324,10 @@ class FileWorker:
             raise requests.exceptions.HTTPError(response=rspn)
         return rspn
 
-    # Use the entity-api service to get all the entities of a given type.
-    # input: An entity type found in the ID_ENTITY_TYPES list commonly repeated in each service's app.cfg.
-    # output: @TODO YAML with info from Neo4j
+    # Use the entity-api service to get all the entities of type Dataset, then
+    # discard all marked as containing genetic information
+    # input: A token for querying the entity-api
+    # output: A list of UUIDs for Datasets which do not have genetic information.
     def _get_all_nongenetic_datasets(self, bearer_token):
         # Rely on the type checking the entity-api does with entity-type.
         theDatasets = self._get_all_entities_identifiers('DATASET', bearer_token=bearer_token)
@@ -560,10 +563,15 @@ class FileWorker:
         #                                               ,key_uuid=dataset_uuid)
         #                     , 303)
 
-    # Use the entity-api service to get the entity for the given identifier, if
-    # the entity-type @TODO
-    # input: id (hubmap_id or uuid) of an entity
-    # output: the @TODO of the entity
+    # Use the entity-api service to get provenance info of a given Dataset identifier.
+    # input: entity_id-ID (hubmap_id or uuid) of a Dataset entity.
+    #        bearer_token-An optional token for querying the entity-api. The users token will be used for
+    #                     querying when this argument is not specified.
+    #        entity_type_check-An optional entity type.  If specified, and the ID in entity_id does not
+    #                          match this type, an exception is raised.
+    # output: JSON with info from Neo4j.
+    # exceptions-Exception raised if response is not 200, or if the returned JSON does not contain an
+    #            entity match the type specified in the optional argument entity_type_check.
     def get_entity(self, entity_id, bearer_token=None, entity_type_check=None):
         if not bearer_token:
             bearer_token = self.user_token
@@ -581,8 +589,15 @@ class FileWorker:
 
     # Use the uuid-api service to find out the uuid of a given identifier, for
     # use with endpoints requiring a uuid as the identifier.
-    # input: id (hubmap_id or uuid) of an entity
+    # input: entity_id-ID (hubmap_id or uuid) of a Dataset entity.
+    #        bearer_token-An optional token for querying the entity-api. The users token will be used for
+    #                     querying when this argument is not specified.
+    #        entity_type_check-An optional entity type.  If specified, and the ID in entity_id does not
+    #                          match this type, an exception is raised.
     # output: the uuid of the entity
+    # exceptions-Exception raised if response is not 200, or if the returned JSON does not contain an
+    #            entity match the type specified in the optional argument entity_type_check.
+
     def get_identifier_info(self, entity_id, entity_type_check=None, bearer_token=None):
         if not bearer_token:
             bearer_token = self.user_token
@@ -674,7 +689,7 @@ class FileWorker:
             # Anticipating this method is a long-running process, use the internal, non-expiring token to
             # complete the following loop, despite the status of the token AWS Gateway checked to limit this
             # functionality to Data Admins.
-            durable_token = self.user_token #replace with self.auth_helper.getProcessSecret()
+            durable_token = self.auth_helper.getProcessSecret()
 
             datasetList = self._get_all_nongenetic_datasets(bearer_token=durable_token)
 
