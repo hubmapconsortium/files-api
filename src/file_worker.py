@@ -419,7 +419,7 @@ class FileWorker:
                 sample_dict['uuid'] = sample_uuid
                 sample_dict['code'] = sample_category
                 # Repeat the 'code' value until a replacement for tissue_sample_type.yaml is available.
-                sample_dict['type'] = sample_category
+                sample_dict['type'] = sample_category.capitalize()
                 tissue_samples_dict_list.append(sample_dict)
 
         # Determine the current Dataset type with an acceptable description, given
