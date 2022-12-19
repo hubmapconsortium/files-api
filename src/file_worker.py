@@ -27,8 +27,6 @@ UMLS_RACE_GROUP_CUI = 'C0034510'
 
 # Yaml file to be parsed for organ description lookup
 ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/organ_types.yaml'
-# Yaml file to be parsed for tissue description lookup
-TISSUE_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/tissue_sample_types.yaml'
 ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
 
 # Keep a file of descriptions associated with a Dataset data_type and a file regex pattern until
@@ -134,19 +132,6 @@ class FileWorker:
         else:
             self.logger.error(f"Unable to retrieve {ORGAN_TYPES_YAML}")
             raise HTTPException(response.status_code, f"Unable to retrieve {ORGAN_TYPES_YAML}")
-
-        # Keep a semi-immutable dictionary of known tissues, from values used by all the microservices.
-        response = requests.get(url=TISSUE_TYPES_YAML, verify=False)
-        if response.status_code == 200:
-            yaml_file = response.text
-            try:
-                self.tissue_type_dict = MappingProxyType(yaml.safe_load(yaml_file))
-            except yaml.YAMLError as e:
-                raise yaml.YAMLError(e)
-        else:
-            self.logger.error(f"Unable to retrieve {TISSUE_TYPES_YAML}")
-            raise HTTPException(response.status_code, f"Unable to retrieve {TISSUE_TYPES_YAML}")
-
 
         # Keep a semi-immutable dictionary of known assay, from values used by all the microservices. From that
         # dictionary, create a reverse lookup dictionary keyed by alt-names for the
@@ -429,11 +414,12 @@ class FileWorker:
         donors_dict_list = []
         for sample_uuid in entity_prov_info['dataset_samples'].keys():
             sample_dict = {}
-            specimen_type = entity_prov_info['dataset_samples'][sample_uuid]['specimen_type']
-            if specimen_type != 'organ':
+            sample_category = entity_prov_info['dataset_samples'][sample_uuid]['sample_category']
+            if sample_category != 'organ':
                 sample_dict['uuid'] = sample_uuid
-                sample_dict['code'] = specimen_type
-                sample_dict['type'] = self.tissue_type_dict[specimen_type]['description']
+                sample_dict['code'] = sample_category
+                # Repeat the 'code' value until a replacement for tissue_sample_type.yaml is available.
+                sample_dict['type'] = sample_category.capitalize()
                 tissue_samples_dict_list.append(sample_dict)
 
         # Determine the current Dataset type with an acceptable description, given
@@ -476,7 +462,7 @@ class FileWorker:
             organ_dict['uuid'] = organ_uuid
 
             organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check='Sample')
-            if not organ_info['specimen_type'] or organ_info['specimen_type'] != 'organ':
+            if not organ_info['sample_category'] or organ_info['sample_category'] != 'organ':
                 continue
             donor_dict['uuid'] = organ_info['direct_ancestor']['uuid'] if organ_info['direct_ancestor']['uuid'] else None
             if not organ_info['organ']:
