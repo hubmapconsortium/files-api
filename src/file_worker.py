@@ -3,7 +3,7 @@ import logging
 import re
 import threading
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from http.client import HTTPException
 from sys import getsizeof
 
@@ -533,7 +533,10 @@ class FileWorker:
             file_info['data_types'] = entity_prov_info['dataset_data_types']
             file_info.pop('path')
             file_info.pop('base_dir')
-            file_info['file_info_refresh_timestamp'] = datetime.utcnow().isoformat()
+            # See admonition at https://docs.python.org/3/library/datetime.html#datetime.datetime.utcnow to
+            # retrieve a non-naive UTC time.
+            awareUTCTimeNow = datetime.now(timezone.utc)
+            file_info['file_info_refresh_timestamp'] = awareUTCTimeNow.isoformat()
             dataset_file_info_list.append(file_info)
 
         results_json = json.dumps(dataset_file_info_list)
