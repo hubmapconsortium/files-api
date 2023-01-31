@@ -23,11 +23,6 @@ from app_db import DBConn
 from hubmap_commons.hm_auth import AuthHelper
 from hubmap_commons.hubmap_const import HubmapConst
 
-# Default values for scrolling an OpenSearch index using the search-api endpoint
-SCROLL_HITS_PER_READ = 10000
-SCROLL_OPEN_MINUTES_READ = 10
-SCROLL_OPEN_MINUTES_DUMP = 0
-
 # UMLS Concept Unique Identifiers used to encode entity-api information
 UMLS_AGE_GROUP_CUI = 'C0001779'
 UMLS_RACE_GROUP_CUI = 'C0034510'
@@ -116,7 +111,7 @@ class FileWorker:
             self.files_api_nonpublic_index = appConfig['FILES_API_NONPUBLIC_INDEX']
 
             self.max_docs_per_scroll_page = appConfig['MAX_DOCS_PER_SCROLL_PAGE']
-            self.max_time_open_scroll_context = appConfig['MAX_TIME_OPEN_SCROLL_CONTEXT']
+            self.max_minutes_open_scroll_context = appConfig['MAX_MINUTES_OPEN_SCROLL_CONTEXT']
 
             self.aws_access_key_id = appConfig['AWS_ACCESS_KEY_ID']
             self.aws_secret_access_key = appConfig['AWS_SECRET_ACCESS_KEY']
@@ -425,17 +420,18 @@ class FileWorker:
         #      search-api's single scroll-search endpoint what to do.  In the future, if making
         #      the search-api scroll-search public means more endpoints compatible with OpenSearch,
         #      this method will be rewritten and can become more generic by passing in "query".
-        scroll_open_json_dict = {"scroll_open_minutes": SCROLL_OPEN_MINUTES_READ
-                                 ,"size": SCROLL_HITS_PER_READ
+        scroll_open_json_dict = {"scroll_open_minutes": self.max_minutes_open_scroll_context
+                                 ,"size": self.max_docs_per_scroll_page
                                  ,"query": {"match_all": {}}
                                  ,"fields": [ "file_uuid", "dataset_uuid", "file_info_refresh_timestamp"]
                                  ,"_source": False
                                  }
         # Set up a dictionary which can be converted to JSON for continued reading of a scroll
-        scroll_read_json_dict = {"scroll_open_minutes": SCROLL_OPEN_MINUTES_READ
+        scroll_read_json_dict = {"scroll_open_minutes": self.max_minutes_open_scroll_context
                                     ,"scroll_id": "set after each response"}
-        # Set up a dictionary which can be converted to JSON for closing a scroll
-        scroll_dump_json_dict = {"scroll_open_minutes": SCROLL_OPEN_MINUTES_DUMP
+        # Set up a dictionary which can be converted to JSON for closing a scroll. Use zero minutes to
+        # indicate scroll should be closed.
+        scroll_dump_json_dict = {"scroll_open_minutes": 0
                                     ,"scroll_id": "set after final response"}
         # Open a scroll using the search-api composite index name 'files', expecting to
         # get a scroll on the "consortium" (aka "private") OpenSearch index.  Assume the
@@ -478,7 +474,7 @@ class FileWorker:
         self.logger.debug(f"Response to open scroll had {len(current_read_hits['hits'])}."
                           f" After processing, len(all_hits)={len(all_hits)}.")
 
-        while hits_size >= SCROLL_HITS_PER_READ:
+        while hits_size >= self.max_docs_per_scroll_page:
             try:
                 # Continue reading a scroll using a read dictionary configured above
                 rspn_read = requests.post(post_url, headers=headers, data=json.dumps(scroll_read_json_dict))

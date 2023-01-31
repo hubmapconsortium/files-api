@@ -34,3 +34,10 @@ SEARCH_API_URL = 'http://search-api:8080'
 # Elasticsearch index names, as supported by search-api in search-config.yaml deployed for each tier.
 FILES_API_PUBLIC_INDEX = 'hm_dev_public_files'
 FILES_API_NONPUBLIC_INDEX = 'hm_dev_consortium_files'
+
+# Maximum number of hits for each page of search scroll results.
+# N.B. Elasticsearch has marked scroll functionality as deprecated, but OpenSearch has not.
+# https://opensearch.org/docs/latest/api-reference/scroll/
+MAX_DOCS_PER_SCROLL_PAGE = 10000
+# Time string for URL parameter. Ref. https://opensearch.org/docs/latest/api-reference/scroll/#url-parameters
+MAX_MINUTES_OPEN_SCROLL_CONTEXT = 10
