@@ -4,7 +4,9 @@ import re
 import threading
 import json
 from datetime import datetime, timezone
+import dateutil.parser
 from http.client import HTTPException
+from string import Template
 from sys import getsizeof
 
 import requests
@@ -52,6 +54,19 @@ SQL_SELECT_FILES_DESCENDED_FROM_ANCESTOR_UUID = \
      " WHERE ancestors.ANCESTOR_UUID = %s"
      )
 
+SQL_SELECT_MOD_TIME_OF_DATASET_FILES = \
+    ("SELECT uuidFile.UUID AS file_uuid"
+     "       ,uuidFile.TIME_GENERATED AS file_uuid_gen_time"
+     "       ,f.LAST_MODIFIED AS file_last_modified"
+     "       ,uuidDataset.UUID AS dataset_uuid"
+     "       ,uuidDataset.TIME_GENERATED AS dataset_uuid_gen_time"
+     " FROM files AS f"
+     "  INNER JOIN uuids AS uuidFile ON f.UUID = uuidFile.UUID"
+     "  INNER JOIN ancestors AS ancDataset ON f.UUID = ancDataset.DESCENDANT_UUID"
+     "   INNER JOIN uuids AS uuidDataset ON ancDataset.ANCESTOR_UUID=uuidDataset.UUID"
+     " WHERE uuidDataset.ENTITY_TYPE='dataset'"
+     )
+
 from enum import Enum
 class DatasetIndexScopeType(Enum):
     GENETIC = 'GENETIC'
@@ -94,6 +109,9 @@ class FileWorker:
             self.search_api_url = appConfig['SEARCH_API_URL'].strip('/')
             self.files_api_public_index = appConfig['FILES_API_PUBLIC_INDEX']
             self.files_api_nonpublic_index = appConfig['FILES_API_NONPUBLIC_INDEX']
+
+            self.max_docs_per_scroll_page = appConfig['MAX_DOCS_PER_SCROLL_PAGE']
+            self.max_minutes_open_scroll_context = appConfig['MAX_MINUTES_OPEN_SCROLL_CONTEXT']
 
             self.aws_access_key_id = appConfig['AWS_ACCESS_KEY_ID']
             self.aws_secret_access_key = appConfig['AWS_SECRET_ACCESS_KEY']
@@ -258,7 +276,9 @@ class FileWorker:
         response = requests.get(get_url, headers={'Authorization': 'Bearer ' + bearer_token}, verify=False)
         if response.status_code != 200:
             self.logger.error(f"For dataset_id={dataset_id}, get_url={get_url} returned status_code={response.status_code}: {response.text}.")
-            raise requests.exceptions.HTTPError(response=response)
+            ## A status_code of 400 is returned for non-primary Datasets.  This may change in the future, but
+            ## do not raise an exception about it or halt processing.
+            # raise requests.exceptions.HTTPError(response=response)
         return response.json()
 
     # Use the entity-api service to get provenance info of a given Dataset identifier.
@@ -323,6 +343,12 @@ class FileWorker:
                 datasetIdentifierList.append(aDataset['uuid'])
         return datasetIdentifierList
 
+    # Wrapper for calls to methods which return datasets which belong in the indices
+    # input: A token for querying the entity-api
+    # output: A list of UUIDs for Datasets whose Files info should be indexed.
+    def _get_indexable_datasets(self, bearer_token):
+        return self._get_all_nongenetic_datasets(bearer_token=bearer_token)
+
     # Return a value from DatasetIndexScopeType which can be used to determine
     # which Elasticsearch index the Dataset's documents should be put into.
     def _get_dataset_scope(self, aDataset):
@@ -334,6 +360,225 @@ class FileWorker:
             return DatasetIndexScopeType.PUBLIC
         else:
             return DatasetIndexScopeType.NONPUBLIC
+
+    # Add search results for File index times to an accumulating dictionary keyed by Dataset UUID
+    def _accumulate_hits(self, new_search_hits, hit_accum_dict):
+        # Count on the _id of each hit to be the File UUID also found as hit.fields.file_uuid
+        for hit in new_search_hits:
+            for dataset_uuid in hit['fields']['dataset_uuid']:
+                try:
+                    if dataset_uuid not in hit_accum_dict:
+                        hit_accum_dict[dataset_uuid] = {}
+                    # Expect to not get the same File UUID twice in new_search_hits, so not
+                    # testing if hit['_id'] entry would be an overwrite.
+                    hit_accum_dict[dataset_uuid][hit['_id']] = dateutil.parser.parse(hit['fields']['file_info_refresh_timestamp'][0])
+                except KeyError as ke:
+                    raise ke
+        return len(new_search_hits)
+
+    # Form a Dataset UUID keyed dictionary containing TIME_GENERATED info from MySQL query results
+    def _get_mod_time_dict(self, new_query_results):
+        # Form a dictionary keyed by Dataset UUID, containing the "time generated" for the
+        # Dataset UUID, and a dictionary of file information for the Dataset. The contained
+        # dictionary is keyed by File UUID, and contains the "last modified time" of that UUID.
+        gen_time_dict = {}
+        for row in new_query_results:
+            try:
+                if not row['dataset_uuid'] in gen_time_dict:
+                    awareUTCDatasetGenTime = row['dataset_uuid_gen_time'].replace(tzinfo=timezone.utc)
+                    gen_time_dict[row['dataset_uuid']] = {"uuid_gen_time": awareUTCDatasetGenTime
+                                                          ,"dataset_files": {}}
+                awareUTCFileModTime = row['file_last_modified'].replace(tzinfo=timezone.utc)
+                gen_time_dict[row['dataset_uuid']]['dataset_files'][row['file_uuid']] = awareUTCFileModTime
+            except KeyError as ke:
+                raise ke
+        return gen_time_dict
+    def _get_modification_time_of_dataset_files(self):
+
+        # run the query and morph results to an array of dict
+        with closing(self.hmdb.getDBConnection()) as dbConn:
+            with closing(dbConn.cursor(prepared=True)) as curs:
+                # query that finds all files associated with entity by joining the ancestors table (entity is
+                # the ancestor, files are the descendants) with the files table
+                curs.execute(SQL_SELECT_MOD_TIME_OF_DATASET_FILES)
+                results = [dict((curs.description[i][0].lower(), value) for i, value in enumerate(row)) for row in
+                           curs.fetchall()]
+
+        return results
+
+        # if len(results_json) < self.large_response_threshold:
+        #     return Response(response=results_json, mimetype="application/json")
+        # else:
+        #     return Response(self._stash_results_in_S3(object_content=results_json, key_uuid=uuid_tuple[0]), 303)
+
+    #
+    def _read_all_index_results(self, bearer_token):
+        scroll_id = None
+        current_read_hits = []
+        # Set up a dictionary which can be converted to JSON for opening a scroll search
+        # N.B. "scroll_open_minutes" is not a part of the OpenSearch JSON, but is how we signal
+        #      search-api's single scroll-search endpoint what to do.  In the future, if making
+        #      the search-api scroll-search public means more endpoints compatible with OpenSearch,
+        #      this method will be rewritten and can become more generic by passing in "query".
+        scroll_open_json_dict = {"scroll_open_minutes": self.max_minutes_open_scroll_context
+                                 ,"size": self.max_docs_per_scroll_page
+                                 ,"query": {"match_all": {}}
+                                 ,"fields": [ "file_uuid", "dataset_uuid", "file_info_refresh_timestamp"]
+                                 ,"_source": False
+                                 }
+        # Set up a dictionary which can be converted to JSON for continued reading of a scroll
+        scroll_read_json_dict = {"scroll_open_minutes": self.max_minutes_open_scroll_context
+                                    ,"scroll_id": "set after each response"}
+        # Set up a dictionary which can be converted to JSON for closing a scroll. Use zero minutes to
+        # indicate scroll should be closed.
+        scroll_dump_json_dict = {"scroll_open_minutes": 0
+                                    ,"scroll_id": "set after final response"}
+        # Open a scroll using the search-api composite index name 'files', expecting to
+        # get a scroll on the "consortium" (aka "private") OpenSearch index.  Assume the
+        # corresponding OpenSearch "public" index contains a subset of the "consortium" entries, each
+        # in the same state in both indices, as maintained by this method.
+        post_url = f"{self.search_api_url}/files/scroll-search"
+
+        headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + bearer_token}
+
+        try:
+            # Open a scroll using an open dictionary configured above
+            rspn_open = requests.post(post_url, headers=headers, data=json.dumps(scroll_open_json_dict))
+        except ConnectionError as ce:
+            self.logger.error("Failure to open scroll. See JSON")
+        except Exception as e:
+            raise Exception(f"Scroll search failed due to {str(e)}")
+        if rspn_open.status_code not in [200]:
+            raise requests.exceptions.HTTPError(response=rspn_open)
+        else:
+            json_open_rspn = rspn_open.json()
+            if '_scroll_id' in json_open_rspn:
+                scroll_id = json_open_rspn['_scroll_id']
+                current_read_hits = json_open_rspn['hits']
+            else:
+                self.logger.error(f"Missing '_scroll_id' during scroll open in JSON {json_open_rspn}")
+                raise requests.exceptions.HTTPError(response=rspn_open)
+        # Hang onto the scroll_id for further OpenSearch operations
+        scroll_dump_json_dict['scroll_id'] = scroll_id
+        scroll_read_json_dict['scroll_id'] = scroll_id
+
+        hits_size = 0
+        all_hits = {}
+
+        try:
+           hits_size = self._accumulate_hits(current_read_hits['hits'], all_hits)
+        except KeyError:
+            self.logger.error("Failed to load search hit into hit_stash with coded keys.")
+            return "Failed to process search results due to a key coding error.  See logs.", 500
+
+        self.logger.debug(f"Response to open scroll had {len(current_read_hits['hits'])}."
+                          f" After processing, len(all_hits)={len(all_hits)}.")
+
+        while hits_size >= self.max_docs_per_scroll_page:
+            try:
+                # Continue reading a scroll using a read dictionary configured above
+                rspn_read = requests.post(post_url, headers=headers, data=json.dumps(scroll_read_json_dict))
+            except Exception as e:
+                raise Exception(f"Scroll read failed due to {str(e)}")
+            if rspn_read.status_code not in [200]:
+                self.logger.error(f"Unexpected {rspn_read.status_code} response during scroll read. {rspn_read.raw}")
+                raise requests.exceptions.HTTPError(response=rspn_read)
+            else:
+                json_read_rspn = rspn_read.json()
+                if '_scroll_id' in json_read_rspn:
+                    scroll_id = json_read_rspn['_scroll_id']
+                    current_read_hits = json_read_rspn['hits']
+                else:
+                    self.logger.error(f"Missing '_scroll_id' during scroll read in JSON {json_read_rspn}")
+                    raise requests.exceptions.HTTPError(response=rspn_read)
+            # Update the scroll_id for further OpenSearch operations, as it may change with each operation.
+            scroll_dump_json_dict['scroll_id'] = scroll_id
+            scroll_read_json_dict['scroll_id'] = scroll_id
+
+            try:
+                #hits_size = self._accumulate_hits(current_read_hits['hits'], all_hits)
+                hits_size = self._accumulate_hits(current_read_hits['hits'], all_hits)
+            except KeyError:
+                self.logger.error("Failed to load search hit into hit_stash with coded keys.")
+                return "Failed to process search results due to a key coding error.  See logs.", 500
+
+            self.logger.log(logging.DEBUG-1
+                            ,f"Response to read scroll had {len(current_read_hits['hits'])}."
+                             f" After processing, len(all_hits)={len(all_hits)}.")
+
+        self.logger.debug(f"With len(all_hits)={len(all_hits)}, reading complete.")
+
+        # close a scroll using a dump dictionary configured above
+        rspn_dump = requests.post(post_url, headers=headers, data=json.dumps(scroll_dump_json_dict))
+        if rspn_dump.status_code not in [200]:
+            self.logger.error(f"Unexpected {rspn_dump.status_code} response during scroll close. {rspn_dump.raw}")
+            raise requests.exceptions.HTTPError(response=rspn_dump)
+        return all_hits
+
+    def _get_index_refresh_operations(self, bearer_token=None):
+
+        # Anticipating this method is a long-running process, use the internal, non-expiring token to
+        # complete the following loop, despite the status of the token AWS Gateway checked to limit this
+        # functionality to Data Admins.
+        durable_token = self.auth_helper.getProcessSecret()
+
+        all_file_mod_times = self._get_modification_time_of_dataset_files()
+        mod_time_dict = self._get_mod_time_dict(all_file_mod_times)
+
+        all_file_index_dates = self._read_all_index_results(bearer_token=durable_token)
+
+        # Get a list of all the datasets which should be in the indices, so we can check for gaps.
+        datasetList = self._get_indexable_datasets(bearer_token=durable_token)
+        self.logger.info(f"Processing {len(datasetList)} Datasets for inclusion in Elasticsearch indices.")
+
+        index_ops_dict = {'add':[], 'delete':[], 'reindex':[]}
+        # Determine what is in the (consortium) index, but is not known to entity-api and Neo4j, so should be removed
+        for dataset_uuid in all_file_index_dates:
+            if dataset_uuid not in datasetList:
+                self.logger.log(logging.DEBUG-1
+                                ,f"{dataset_uuid} in OpenSearch but not Neo4j, remove")
+                index_ops_dict['delete'].append(dataset_uuid)
+
+        # Determine what is known to entity-api & Neo4j which should be in the (consortium) index which
+        # should be added to the index or which needs to be re-indexed.
+        for dataset_uuid in datasetList:
+            if dataset_uuid not in all_file_index_dates:
+                self.logger.log(logging.DEBUG-1
+                                ,f"{dataset_uuid} in Neo4j but not OpenSearch, add")
+                index_ops_dict['add'].append(dataset_uuid)
+            else:
+                # Determine what is known to entity-api & Neo4j, and to the (consortium) index, but has a
+                # LAST_MODIFIED date in UUID which is after the date on the index entry. When one File of
+                # a Dataset is stale or in one datastore but not the other, reindex the whole dataset.
+                for file_uuid in all_file_index_dates[dataset_uuid].keys():
+                    if file_uuid in all_file_index_dates[dataset_uuid] \
+                        and file_uuid not in mod_time_dict[dataset_uuid]['dataset_files']:
+                        self.logger.log(logging.DEBUG - 1
+                                        , f"For dataset_uuid={dataset_uuid}, file_uuid={file_uuid},"
+                                          f" found in OpenSearch but not Neo4j,"
+                                          f" so reindex.")
+                        index_ops_dict['reindex'].append(dataset_uuid)
+                        break
+                    if file_uuid in mod_time_dict[dataset_uuid]['dataset_files'] \
+                        and file_uuid not in all_file_index_dates[dataset_uuid]:
+                        self.logger.log(logging.DEBUG - 1
+                                        , f"For dataset_uuid={dataset_uuid}, file_uuid={file_uuid},"
+                                          f" found in Neo4j but not OpenSearch,"
+                                          f" so reindex.")
+                        index_ops_dict['reindex'].append(dataset_uuid)
+                        break
+                    if all_file_index_dates[dataset_uuid][file_uuid] < mod_time_dict[dataset_uuid]['dataset_files'][file_uuid]:
+                        self.logger.log(logging.DEBUG-1
+                                        ,f"For dataset_uuid={dataset_uuid}, file_uuid={file_uuid}, "
+                                         f"modification time of {mod_time_dict[dataset_uuid]['dataset_files'][file_uuid]} "
+                                         f"is before index time of {all_file_index_dates[dataset_uuid][file_uuid]}, "
+                                         f"so reindex.")
+                        index_ops_dict['reindex'].append(dataset_uuid)
+                        # One file being updated indicates the whole dataset should be reindexed, so no
+                        # need to process further.
+                        break
+
+        return index_ops_dict
 
     # Test the connection to the supporting database the self.hmdb variable is
     # connected to during construction.
@@ -408,6 +653,11 @@ class FileWorker:
 
         # Get what entity-api knows about the Dataset's files and ancestors
         entity_prov_info = self._get_dataset_prov_info(dataset_uuid, bearer_token=bearer_token)
+        # If the returned JSON contains 'error', it was logged by the _get_dataset_prov_info(), so
+        # just return an empty dictionary.
+        if 'error' in entity_prov_info:
+            return Response(response=json.dumps({})
+                            , mimetype="application/json")
 
         tissue_samples_dict_list = []
         organs_dict_list = []
@@ -418,8 +668,7 @@ class FileWorker:
             if sample_category != 'organ':
                 sample_dict['uuid'] = sample_uuid
                 sample_dict['code'] = sample_category
-                # Repeat the 'code' value until a replacement for tissue_sample_type.yaml is available.
-                sample_dict['type'] = sample_category.capitalize()
+                sample_dict['type'] = sample_category
                 tissue_samples_dict_list.append(sample_dict)
 
         # Determine the current Dataset type with an acceptable description, given
@@ -540,7 +789,6 @@ class FileWorker:
             dataset_file_info_list.append(file_info)
 
         results_json = json.dumps(dataset_file_info_list)
-        #results_json = files_info + anc_info + desc_info
 
         return Response(response=results_json
                         , mimetype="application/json")
@@ -613,9 +861,9 @@ class FileWorker:
         #      should also be allowed to be indexed in the near future.
         dataset_scope = self._get_dataset_scope(aDataset=aDataset)
         if dataset_scope == DatasetIndexScopeType.GENETIC:
-            raise Exception(
-                f"Dataset {aDataset['uuid']} with 'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
-                + " is not allowed in Elasticsearch indices.")
+            raise Exception(f"Dataset {aDataset['uuid']} with "
+                            f"'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
+                            f" is not allowed in Elasticsearch indices.")
         elif dataset_scope == DatasetIndexScopeType.PUBLIC:
             target_indices = [self.files_api_public_index, self.files_api_nonpublic_index]
         elif dataset_scope == DatasetIndexScopeType.NONPUBLIC:
@@ -629,15 +877,15 @@ class FileWorker:
         # Connect to the database and retrieve the information for files
         # descended from the entity.
         dataset_files_info_response = self.get_dataset_file_infos(aDataset['uuid'], bearer_token=bearer_token)
-        files_info_list = dataset_files_info_response.get_json()
 
-        if not files_info_list:
+        if not dataset_files_info_response or not dataset_files_info_response.get_json():
             # if this is a Dataset with no files, but the response is fine, do not log an error
             if dataset_files_info_response.status_code == 200:
                 pass
             else:
                 self.logger.error(f"Unable to retrieve the file set JSON to do indexing for aDataset['uuid']={aDataset['uuid']}")
                 raise Exception(f"Unexpected JSON content getting file info documents for aDataset['uuid']={aDataset['uuid']}")
+        files_info_list = dataset_files_info_response.get_json()
 
         # Try clearing the documents for the Dataset before inserting current documents, in case
         # Files were removed from the Dataset since initially put in the index.  But don't skip
@@ -727,3 +975,41 @@ class FileWorker:
         allDatasetResultDict['succeeded'] = inserted_datasets_list
         return Response(json.dumps(allDatasetResultDict))
 
+    def refresh_indices(self):
+        # Anticipating this method is a long-running process, use the internal, non-expiring token to
+        # complete the following loop, despite the status of the token AWS Gateway checked to limit this
+        # functionality to Data Admins.
+        durable_token = self.auth_helper.getProcessSecret()
+
+        ops_dict = self._get_index_refresh_operations(bearer_token=durable_token)
+        if ops_dict:
+            self.logger.info(f"Identified {len(ops_dict['delete'])} Datasets to delete"
+                             f" because they are in OpenSearch but not Neo4j.")
+            self.logger.info(f"Identified {len(ops_dict['add'])} Datasets to add"
+                             f" because they are in Neo4j but not OpenSearch.")
+            self.logger.info(f"Identified {len(ops_dict['reindex'])} Datasets to reindex"
+                             f" because the Files have been modified since the Dataset was indexed.")
+
+        index_response_dict = {}
+        for dataset_uuid in ops_dict['delete']:
+            self.logger.error(f"Dataset {dataset_uuid} unexpectedly in Neo4j but not Opensearch. No endpoint"
+                              f" supporting removal.")
+            index_response_dict[dataset_uuid] = {'error': 'Unable to delete, see logs.'}
+        for dataset_uuid in ops_dict['add']:
+            try:
+                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
+            except requests.HTTPError as he:
+                self.logger.error(f"For Dataset {dataset_uuid}, unable to 'add' due to {he.response.text}")
+                index_response_dict[dataset_uuid] = {'error' : 'Unable to add, see logs.'}
+                continue
+            index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
+        for dataset_uuid in ops_dict['reindex']:
+            try:
+                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
+            except requests.HTTPError as he:
+                self.logger.error(f"For Dataset {dataset_uuid}, unable to 'reindex' due to {he.response.text}")
+                index_response_dict[dataset_uuid] = {'error': 'Unable to reindex, see logs.'}
+                continue
+            index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
+
+        return Response(json.dumps(index_response_dict)), 200

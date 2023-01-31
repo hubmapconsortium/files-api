@@ -1,4 +1,4 @@
-from flask import Blueprint, Response, request
+from flask import Blueprint, Response, request, jsonify
 import json
 
 import logging
@@ -108,6 +108,22 @@ def construct_blueprint(appConfig):
                 raise Exception(e)
 
         return "Request to index file info documents for all Datasets into the public and private Elasticsearch indices accepted", 202
+
+    @file_info_index_blueprint.route('/datasets/refresh-indices', methods=['PUT'])
+    def refresh_indices():
+        fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+
+        # Verify the user is a Data Admin, who can index all datasets
+        if not fworker.verify_user_is_data_admin():
+            raise Exception("Permission denied for requested operation.")
+        try:
+            rspn_refresh = fworker.refresh_indices()
+            return rspn_refresh
+        except requests.HTTPError as he:
+            # OpenSearch errors come back in the JSON, so return them that way.
+            return jsonify(he.response.json()), he.response.status_code
+        except Exception as e:
+            return f"{str(e)}", 400
 
     # end construct_blueprint()
     return file_info_index_blueprint
