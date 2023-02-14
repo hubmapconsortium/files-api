@@ -29,6 +29,7 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)s in %(module)s: %(message
                     datefmt='%Y-%m-%d %H:%M:%S')
 LOG_FILE_NAME = f"{Path(__file__).absolute().parent.parent}/log/files-api-{time.strftime('%m-%d-%Y-%H-%M-%S')}.log"
 log_file_handler = logging.FileHandler(LOG_FILE_NAME)
+log_file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s'))
 
 # Root logger configuration
 # Use `getLogger()` instead of `getLogger(__name__)` to apply the config to the root logger

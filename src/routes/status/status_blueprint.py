@@ -22,7 +22,7 @@ def construct_blueprint(appConfig):
         fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
         status_data = {'version': (Path(__file__).absolute().parent.parent.parent.parent / 'VERSION').read_text().strip(),
                        'build': (Path(__file__).absolute().parent.parent.parent.parent / 'BUILD').read_text().strip(),
-                       'mysql_connection': fworker.testConnection()}
+                       'mysql_connection': fworker.testMySQLConnection()}
 
         return jsonify(status_data)
     return status_blueprint

@@ -529,15 +529,27 @@ class FileWorker:
 
         # Get a list of all the datasets which should be in the indices, so we can check for gaps.
         datasetList = self._get_indexable_datasets(bearer_token=durable_token)
-        self.logger.info(f"Processing {len(datasetList)} Datasets for inclusion in Elasticsearch indices.")
 
         index_ops_dict = {'add':[], 'delete':[], 'reindex':[]}
+
+        self.logger.debug(   f"Evaluating {len(all_file_index_dates)} indexed OpenSearch datasets against"
+                            f" {len(datasetList)} Neo4j indexable Datasets to determine deletions.")
+        no_op_dataset_count = 0
+
         # Determine what is in the (consortium) index, but is not known to entity-api and Neo4j, so should be removed
         for dataset_uuid in all_file_index_dates:
             if dataset_uuid not in datasetList:
                 self.logger.log(logging.DEBUG-1
                                 ,f"{dataset_uuid} in OpenSearch but not Neo4j, remove")
                 index_ops_dict['delete'].append(dataset_uuid)
+            else:
+                no_op_dataset_count = no_op_dataset_count + 1
+        self.logger.debug(  f"Identified {len(index_ops_dict['delete'])} Datasets for deletion from OpenSearch and"
+                            f" {no_op_dataset_count} Datasets which can remain in OpenSearch.")
+
+        self.logger.info(   f"Evaluating {len(datasetList)} Neo4j indexable Datasets against"
+                            f" {len(all_file_index_dates)} indexed OpenSearch datasets to determine operations.")
+        no_op_dataset_count = 0
 
         # Determine what is known to entity-api & Neo4j which should be in the (consortium) index which
         # should be added to the index or which needs to be re-indexed.
@@ -577,6 +589,10 @@ class FileWorker:
                         # One file being updated indicates the whole dataset should be reindexed, so no
                         # need to process further.
                         break
+                    no_op_dataset_count = 0
+        self.logger.debug(  f"Identified {len(index_ops_dict['reindex'])} Datasets for reindexing,"
+                            f" {len(index_ops_dict['add'])} Datasets for addition,"
+                            f" and {no_op_dataset_count} Datasets which can remain in Neo4j.")
 
         return index_ops_dict
 
@@ -584,7 +600,7 @@ class FileWorker:
     # connected to during construction.
     # input: none
     # output: Boolean, valued True if an SQL SELECT statement executes, False otherwise.
-    def testConnection(self):
+    def testMySQLConnection(self):
         try:
             res = None
             with closing(self.hmdb.getDBConnection()) as dbConn:
@@ -1002,6 +1018,7 @@ class FileWorker:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'add' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error' : 'Unable to add, see logs.'}
                 continue
+            self.logger.info(f"Added entries for Dataset {dataset_uuid}.")
             index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
         for dataset_uuid in ops_dict['reindex']:
             try:
@@ -1010,6 +1027,7 @@ class FileWorker:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'reindex' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error': 'Unable to reindex, see logs.'}
                 continue
+            self.logger.info(f"Reindexed entries for Dataset {dataset_uuid}.")
             index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
 
         return Response(json.dumps(index_response_dict)), 200
