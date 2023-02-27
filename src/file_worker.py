@@ -6,7 +6,6 @@ import json
 from datetime import datetime, timezone
 import dateutil.parser
 from http.client import HTTPException
-from string import Template
 from sys import getsizeof
 
 import requests
@@ -107,8 +106,7 @@ class FileWorker:
             self.uuid_api_url = appConfig['UUID_API_URL'].strip('/')
             self.entity_api_url = appConfig['ENTITY_API_URL'].strip('/')
             self.search_api_url = appConfig['SEARCH_API_URL'].strip('/')
-            self.files_api_public_index = appConfig['FILES_API_PUBLIC_INDEX']
-            self.files_api_nonpublic_index = appConfig['FILES_API_NONPUBLIC_INDEX']
+            self.files_api_composite_index = appConfig['FILES_API_COMPOSITE_INDEX']
 
             self.max_docs_per_scroll_page = appConfig['MAX_DOCS_PER_SCROLL_PAGE']
             self.max_minutes_open_scroll_context = appConfig['MAX_MINUTES_OPEN_SCROLL_CONTEXT']
@@ -243,9 +241,9 @@ class FileWorker:
         return json.dumps(results)
 
     # Rely on the search-api to delete all documents matching the provided Dataset UUID
-    def _clear_dataset_file_info_docs(self, es_index_name, dataset_uuid, bearer_token):
+    def _clear_dataset_file_info_docs(self, index_name, dataset_uuid, bearer_token):
 
-        post_url = self.search_api_url + '/clear-docs/' + es_index_name + '/' + dataset_uuid
+        post_url = self.search_api_url + '/clear-docs/' + index_name + '/' + dataset_uuid
         headers = {'Authorization': 'Bearer ' + bearer_token}
         params = {'async': True}
         rspn = requests.post(f"{post_url}", headers=headers, params=params)
@@ -315,16 +313,16 @@ class FileWorker:
     # Rely on the search-api to determine if writing or updating.
     # input: An entity type recognized by the entity-api
     # output: @TODO YAML with info from Neo4j
-    def _write_or_update_doc(self, es_index_name, es_doc_dict, bearer_token):
-        file_id = es_doc_dict['file_uuid']
+    def _write_or_update_doc(self, index_name, document_dict, bearer_token):
+        file_id = document_dict['file_uuid']
         self.logger.debug(  f"For file_id={file_id}"
-                            f" putting file_info with {len(es_doc_dict)} entries of size"
-                            f" {getsizeof(json.dumps(es_doc_dict))} bytes in index {es_index_name}.")
+                            f" putting file_info with {len(document_dict)} entries of size"
+                            f" {getsizeof(json.dumps(document_dict))} bytes in index {index_name}.")
 
-        post_url = self.search_api_url + '/add/' + file_id + '/' + es_index_name
+        post_url = self.search_api_url + '/add/' + file_id + '/' + index_name
         headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + bearer_token}
         params = {'async': True}
-        rspn = requests.post(f"{post_url}", headers=headers, data=json.dumps(es_doc_dict), params=params)
+        rspn = requests.post(f"{post_url}", headers=headers, data=json.dumps(document_dict), params=params)
         if rspn.status_code not in [200, 202]:
             raise requests.exceptions.HTTPError(response=rspn)
         return rspn
@@ -496,7 +494,6 @@ class FileWorker:
             scroll_read_json_dict['scroll_id'] = scroll_id
 
             try:
-                #hits_size = self._accumulate_hits(current_read_hits['hits'], all_hits)
                 hits_size = self._accumulate_hits(current_read_hits['hits'], all_hits)
             except KeyError:
                 self.logger.error("Failed to load search hit into hit_stash with coded keys.")
@@ -529,15 +526,27 @@ class FileWorker:
 
         # Get a list of all the datasets which should be in the indices, so we can check for gaps.
         datasetList = self._get_indexable_datasets(bearer_token=durable_token)
-        self.logger.info(f"Processing {len(datasetList)} Datasets for inclusion in Elasticsearch indices.")
 
         index_ops_dict = {'add':[], 'delete':[], 'reindex':[]}
+
+        self.logger.debug(   f"Evaluating {len(all_file_index_dates)} indexed OpenSearch datasets against"
+                            f" {len(datasetList)} Neo4j indexable Datasets to determine deletions.")
+        no_op_dataset_count = 0
+
         # Determine what is in the (consortium) index, but is not known to entity-api and Neo4j, so should be removed
         for dataset_uuid in all_file_index_dates:
             if dataset_uuid not in datasetList:
                 self.logger.log(logging.DEBUG-1
                                 ,f"{dataset_uuid} in OpenSearch but not Neo4j, remove")
                 index_ops_dict['delete'].append(dataset_uuid)
+            else:
+                no_op_dataset_count = no_op_dataset_count + 1
+        self.logger.debug(  f"Identified {len(index_ops_dict['delete'])} Datasets for deletion from OpenSearch and"
+                            f" {no_op_dataset_count} Datasets which can remain in OpenSearch.")
+
+        self.logger.info(   f"Evaluating {len(datasetList)} Neo4j indexable Datasets against"
+                            f" {len(all_file_index_dates)} indexed OpenSearch datasets to determine operations.")
+        no_op_dataset_count = 0
 
         # Determine what is known to entity-api & Neo4j which should be in the (consortium) index which
         # should be added to the index or which needs to be re-indexed.
@@ -577,25 +586,35 @@ class FileWorker:
                         # One file being updated indicates the whole dataset should be reindexed, so no
                         # need to process further.
                         break
+                    no_op_dataset_count = 0
+        self.logger.debug(  f"Identified {len(index_ops_dict['reindex'])} Datasets for reindexing,"
+                            f" {len(index_ops_dict['add'])} Datasets for addition,"
+                            f" and {no_op_dataset_count} Datasets which can remain in Neo4j.")
 
         return index_ops_dict
+
+    # Retrieve the status of OpenSearch by invoking search-api's /status endpoint
+    def testOpenSearchConnection(self):
+        get_url = self.search_api_url + '/status'
+        response = requests.get(get_url)
+        if response.status_code != 200:
+            self.logger.error(  f"Retrieving OpenSearch status from '{get_url}'"
+                                f" got {response.status_code} response,"
+                                f" with message '{response.text}'.")
+            raise requests.exceptions.HTTPError(response=response)
+        return json.loads(response.text)
 
     # Test the connection to the supporting database the self.hmdb variable is
     # connected to during construction.
     # input: none
     # output: Boolean, valued True if an SQL SELECT statement executes, False otherwise.
-    def testConnection(self):
+    def testMySQLConnection(self):
         try:
-            res = None
             with closing(self.hmdb.getDBConnection()) as dbConn:
                 with closing(dbConn.cursor(prepared=True)) as curs:
                     curs.execute("select 'ANYTHING'")
                     res = curs.fetchone()
-
-            if not res:
-                return False
-            else:
-                return res[0] == 'ANYTHING'
+            return res is not None and res[0] == 'ANYTHING'
         except Exception as e:
             self.logger.error(e, exc_info=True)
             return False
@@ -864,14 +883,11 @@ class FileWorker:
             raise Exception(f"Dataset {aDataset['uuid']} with "
                             f"'contains_human_genetic_sequences'={aDataset['contains_human_genetic_sequences']}"
                             f" is not allowed in Elasticsearch indices.")
-        elif dataset_scope == DatasetIndexScopeType.PUBLIC:
-            target_indices = [self.files_api_public_index, self.files_api_nonpublic_index]
-        elif dataset_scope == DatasetIndexScopeType.NONPUBLIC:
-            target_indices = [self.files_api_nonpublic_index]
+        elif dataset_scope in [DatasetIndexScopeType.PUBLIC, DatasetIndexScopeType.NONPUBLIC]:
+            pass
         else:
             self.logger.error(f"Unrecognized state for dataset_scope={dataset_scope} for aDataset['uuid']={aDataset['uuid']}.")
             raise Exception(f"Unable to determine appropriate index for aDataset['uuid']={aDataset['uuid']}. See logs.")
-        self.logger.info(f"Target ES indexes for dataset {aDataset['uuid']} file info documents: {str(target_indices)}.")
 
         # Create a fresh file infos document for the specified Dataset from the dataset-file-info endpoint.
         # Connect to the database and retrieve the information for files
@@ -891,29 +907,29 @@ class FileWorker:
         # Files were removed from the Dataset since initially put in the index.  But don't skip
         # inserting files if deletion is not successful.
         try:
-            for target_index in target_indices:
-                self._clear_dataset_file_info_docs(es_index_name=target_index, dataset_uuid=aDataset['uuid'], bearer_token=bearer_token)
+            self._clear_dataset_file_info_docs( index_name=self.files_api_composite_index
+                                                ,dataset_uuid=aDataset['uuid']
+                                                ,bearer_token=bearer_token)
         except Exception as e:
-            self.logger.error(f"While clearing existing file info documents from {target_index} for"
-                              f" {aDataset['uuid']}, encountered {e.text}. Continuing with insertion.")
+            self.logger.error(f"While clearing existing file info documents from {self.files_api_composite_index}"
+                              f" for {aDataset['uuid']}, encountered {e.text}. Continuing with insertion.")
 
         # Re-work the full dictionary of responses from each search-api /add operation into
         # something more compact from the files-api.
         self.logger.info(f"For Dataset '{aDataset['uuid']}'."
                          f" inserting {len(files_info_list)} file info documents"
-                         f" into {str(target_indices)}."
+                         f" into {self.files_api_composite_index}."
                          )
-        es_response_dict = {}
+        search_response_dict = {}
         for file_info_dict in files_info_list:
             file_response_dict = {}
-            for target_index in target_indices:
-                file_resp = self._write_or_update_doc(es_index_name=target_index,
-                                                      es_doc_dict=file_info_dict,
-                                                      bearer_token=bearer_token)
-                file_response_dict[target_index] = file_resp.text
-            es_response_dict[file_info_dict['file_uuid']] = file_response_dict
+            file_resp = self._write_or_update_doc(index_name=self.files_api_composite_index,
+                                                  document_dict=file_info_dict,
+                                                  bearer_token=bearer_token)
+            file_response_dict[self.files_api_composite_index] = file_resp.text
+            search_response_dict[file_info_dict['file_uuid']] = file_response_dict
 
-        return es_response_dict
+        return search_response_dict
 
     # Get all the Datasets, and loop through each one.  Add a file info document to
     # the Elasticsearch index for each File in an indexable Dataset.
@@ -1002,6 +1018,7 @@ class FileWorker:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'add' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error' : 'Unable to add, see logs.'}
                 continue
+            self.logger.info(f"Added entries for Dataset {dataset_uuid}.")
             index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
         for dataset_uuid in ops_dict['reindex']:
             try:
@@ -1010,6 +1027,7 @@ class FileWorker:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'reindex' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error': 'Unable to reindex, see logs.'}
                 continue
+            self.logger.info(f"Reindexed entries for Dataset {dataset_uuid}.")
             index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
 
         return Response(json.dumps(index_response_dict)), 200
