@@ -292,8 +292,11 @@ class FileWorker:
             raise requests.exceptions.HTTPError(response=response)
         if entity_type_check:
             id_attributes = json.loads(response.text)
-            if id_attributes['entity_type'].lower() != entity_type_check.lower():
-                raise Exception(f"Identifier {entity_id} type is {id_attributes['entity_type']}, not {entity_type_check}.")
+            # Since entity type checking requested, normalize the list entries for
+            # comparison to what is returned by entity-api.
+            entity_type_check = list(map(lambda e_type: e_type.lower(), entity_type_check))
+            if id_attributes['entity_type'].lower() not in entity_type_check:
+                raise Exception(f"Identifier {entity_id} type {id_attributes['entity_type']} is not in {entity_type_check}.")
         return response.json()
 
     # Use the entity-api service to get all the entities of a given type.
@@ -327,18 +330,26 @@ class FileWorker:
             raise requests.exceptions.HTTPError(response=rspn)
         return rspn
 
-    # Use the entity-api service to get all the entities of type Dataset, then
-    # discard all marked as containing genetic information
+    # Use the entity-api service to get all the entities of type Dataset or
+    # of type Publication, then discard all marked as containing genetic information
     # input: A token for querying the entity-api
     # output: A list of UUIDs for Datasets which do not have genetic information.
     def _get_all_nongenetic_datasets(self, bearer_token):
         # Rely on the type checking the entity-api does with entity-type.
-        theDatasets = self._get_all_entities_identifiers('DATASET', bearer_token=bearer_token)
+        theDatasets = self._get_all_entities_identifiers(entity_type='DATASET', bearer_token=bearer_token)
+        thePublications = self._get_all_entities_identifiers(entity_type='PUBLICATION', bearer_token=bearer_token)
+
+        # Publications "are a subclass of" Datasets.
+        # #uuid-api retains an entity_type of Dataset, and entity-api sets an entity_type of Publication.
+        # Resolve difference here by merging into one list of UUIDs for indexing, then offer the
+        # list ['DATASET','PUBLICATION'] whenever verifying type entity_type retrieved from entity_api for
+        # a given UUID.
 
         datasetIdentifierList = []
-        for aDataset in theDatasets:
+        for aDataset in [*theDatasets, *thePublications]:
             if not aDataset['contains_human_genetic_sequences']:
                 datasetIdentifierList.append(aDataset['uuid'])
+
         return datasetIdentifierList
 
     # Wrapper for calls to methods which return datasets which belong in the indices
@@ -729,7 +740,7 @@ class FileWorker:
             organ_dict = {}
             organ_dict['uuid'] = organ_uuid
 
-            organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check='Sample')
+            organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check=['Sample'])
             if not organ_info['sample_category'] or organ_info['sample_category'] != 'organ':
                 continue
             donor_dict['uuid'] = organ_info['direct_ancestor']['uuid'] if organ_info['direct_ancestor']['uuid'] else None
@@ -951,7 +962,7 @@ class FileWorker:
 
             for dataset_uuid in datasetList:
                 try:
-                    theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
+                    theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check=['DATASET','PUBLICATION'])
 
                     index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
 
@@ -1013,7 +1024,7 @@ class FileWorker:
             index_response_dict[dataset_uuid] = {'error': 'Unable to delete, see logs.'}
         for dataset_uuid in ops_dict['add']:
             try:
-                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
+                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check=['DATASET','PUBLICATION'])
             except requests.HTTPError as he:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'add' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error' : 'Unable to add, see logs.'}
@@ -1022,7 +1033,7 @@ class FileWorker:
             index_response_dict[dataset_uuid] = self.index_dataset(aDataset=theDataset, bearer_token=durable_token)
         for dataset_uuid in ops_dict['reindex']:
             try:
-                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check='DATASET')
+                theDataset = self.get_entity(entity_id=dataset_uuid, bearer_token=durable_token, entity_type_check=['DATASET','PUBLICATION'])
             except requests.HTTPError as he:
                 self.logger.error(f"For Dataset {dataset_uuid}, unable to 'reindex' due to {he.response.text}")
                 index_response_dict[dataset_uuid] = {'error': 'Unable to reindex, see logs.'}

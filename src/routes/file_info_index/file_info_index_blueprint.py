@@ -27,7 +27,7 @@ def construct_blueprint(appConfig):
             fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Specify argument to confirm dataset_id is for a Dataset entity.
-            theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check='DATASET')
+            theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check=['DATASET','PUBLICATION'])
 
             if not fworker.verify_user_in_write_group(aDataset=theDataset) and not fworker.verify_user_is_data_admin():
                 raise Exception(f"Permission denied for modifying ES index entries for '{theDataset['uuid']}'.")
