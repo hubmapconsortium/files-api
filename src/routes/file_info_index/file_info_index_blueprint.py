@@ -27,7 +27,7 @@ def construct_blueprint(appConfig):
             fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
 
             # Specify argument to confirm dataset_id is for a Dataset entity.
-            theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check='DATASET')
+            theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check=['DATASET','PUBLICATION'])
 
             if not fworker.verify_user_in_write_group(aDataset=theDataset) and not fworker.verify_user_is_data_admin():
                 raise Exception(f"Permission denied for modifying ES index entries for '{theDataset['uuid']}'.")
@@ -116,14 +116,26 @@ def construct_blueprint(appConfig):
         # Verify the user is a Data Admin, who can index all datasets
         if not fworker.verify_user_is_data_admin():
             raise Exception("Permission denied for requested operation.")
-        try:
-            rspn_refresh = fworker.refresh_indices()
-            return rspn_refresh
-        except requests.HTTPError as he:
-            # OpenSearch errors come back in the JSON, so return them that way.
-            return jsonify(he.response.json()), he.response.status_code
-        except Exception as e:
-            return f"{str(e)}", 400
+
+        asynchronous = request.args.get('async')
+
+        if asynchronous:
+            return fworker.refresh_indices()
+        else:
+            try:
+                threading.Thread(target=fworker.refresh_indices, args=[]).start()
+                # discard the index_response_dict, as it will be logged at the INFO level by the FileWorker
+                logger.info(f"Started to refresh the public and private Elasticsearch indices with"
+                            f" file info documents for added, changed, or deleted Datasets.")
+            except requests.HTTPError as he:
+                # OpenSearch errors come back in the JSON, so return them that way.
+                return jsonify(he.response.json()), he.response.status_code
+            except Exception as e:
+                logger.exception(e)
+                raise Exception(e)
+
+        return  (   f"Request to refresh the public and private OpenSearch indices with file info documents for"
+                    f" added, changed, or deleted Datasets accepted"), 202
 
     # end construct_blueprint()
     return file_info_index_blueprint
