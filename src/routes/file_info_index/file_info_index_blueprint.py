@@ -10,9 +10,9 @@ from file_worker import FileWorker
 
 logger = logging.getLogger(__name__)
 
-def construct_blueprint(appConfig):
+def construct_blueprint(app_config):
     file_info_index_blueprint = Blueprint('file_info_index', __name__)
-    app_config = appConfig
+    app_config = app_config
 
     """
     Index file info documents for the files in a dataset
@@ -24,7 +24,7 @@ def construct_blueprint(appConfig):
     @file_info_index_blueprint.route('/datasets/<dataset_id>/reindex', methods=['PUT'])
     def create_update_dataset_file_infos(dataset_id):
         try:
-            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(app_config=app_config, request_headers=request.headers)
 
             # Specify argument to confirm dataset_id is for a Dataset entity.
             theDataset = fworker.get_entity(entity_id=dataset_id, entity_type_check=['DATASET','PUBLICATION'])
@@ -87,7 +87,7 @@ def construct_blueprint(appConfig):
     """
     @file_info_index_blueprint.route('/datasets/reindex-all', methods=['PUT'])
     def reindex_dataset_files_docs():
-        fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+        fworker = FileWorker(app_config=app_config, request_headers=request.headers)
 
         # Verify the user is a Data Admin, who can index all datasets
         if not fworker.verify_user_is_data_admin():
@@ -111,7 +111,7 @@ def construct_blueprint(appConfig):
 
     @file_info_index_blueprint.route('/datasets/refresh-indices', methods=['PUT'])
     def refresh_indices():
-        fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+        fworker = FileWorker(app_config=app_config, request_headers=request.headers)
 
         # Verify the user is a Data Admin, who can index all datasets
         if not fworker.verify_user_is_data_admin():

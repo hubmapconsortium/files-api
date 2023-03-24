@@ -24,20 +24,19 @@ except Exception as e:
 # Log rotation is handled via logrotate on the host system with a configuration file
 # Do NOT handle log file and rotation via the Python logging to avoid issues with multi-worker processes
 # Configure logging formats and level
-logging.basicConfig(format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
-                    level=logging.INFO,
-                    datefmt='%Y-%m-%d %H:%M:%S')
 LOG_FILE_NAME = f"{Path(__file__).absolute().parent.parent}/log/files-api-{time.strftime('%m-%d-%Y-%H-%M-%S')}.log"
-log_file_handler = logging.FileHandler(LOG_FILE_NAME)
-log_file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s'))
-
+log_file_handler = logging.FileHandler(filename=LOG_FILE_NAME)
+logging_formatter = logging.Formatter(  fmt='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+                                        ,datefmt='%Y-%m-%d %H:%M:%S')
+log_file_handler.setFormatter(fmt=logging_formatter)
 # Root logger configuration
 # Use `getLogger()` instead of `getLogger(__name__)` to apply the config to the root logger
 # will be inherited by the sub-module loggers
 try:
-    logger = logging.getLogger()
-    logger.addHandler(log_file_handler)
-    logger.info(f"logger {logger.name} set up for file {LOG_FILE_NAME}.")
+    logger = logging.getLogger(name='files-api')
+    logger.addHandler(hdlr=log_file_handler)
+    logger.setLevel(level=logging.DEBUG)
+    logger.info("logger {logger.name} set up for file {LOG_FILE_NAME}.")
 except Exception as e:
     print("Error setting up global log file.")
     print(str(e))
@@ -48,9 +47,9 @@ except Exception as e:
     print(str(e))
 
 # Register Blueprints
-app.register_blueprint(status_blueprint.construct_blueprint(appConfig=app.config))
-app.register_blueprint(file_info_blueprint.construct_blueprint(appConfig=app.config))
-app.register_blueprint(file_info_index_blueprint.construct_blueprint(appConfig=app.config))
+app.register_blueprint(status_blueprint.construct_blueprint(app_config=app.config))
+app.register_blueprint(file_info_blueprint.construct_blueprint(app_config=app.config))
+app.register_blueprint(file_info_index_blueprint.construct_blueprint(app_config=app.config))
 
 # Remove trailing slash / from URL base to avoid "//" caused by config with trailing slash
 app.config['UUID_API_URL'] = app.config['UUID_API_URL'].strip('/')
