@@ -6,9 +6,9 @@ from file_worker import FileWorker
 
 logger = logging.getLogger(__name__)
 
-def construct_blueprint(appConfig):
+def construct_blueprint(app_config):
     file_info_blueprint = Blueprint('file_info', __name__)
-    app_config = appConfig
+    app_config = app_config
 
     """
     Get a JSON array containing information from the UUID database about each file attached to the entity
@@ -20,7 +20,7 @@ def construct_blueprint(appConfig):
     @file_info_blueprint.route('/entities/<entity_id>/files', methods=['GET'])
     def get_file_info(entity_id):
         try:
-            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(app_config=app_config, request_headers=request.headers)
 
             # Use the uuid-api webservice to check the identifier format and
             # extract the uuid for the entity.
@@ -51,7 +51,7 @@ def construct_blueprint(appConfig):
     # AWS Gateway configuration limits this endpoint to members of the Data-Admin group
     def get_dataset_file_infos(dataset_id):
         try:
-            fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+            fworker = FileWorker(app_config=app_config, request_headers=request.headers)
 
             # Verify the user is a Data Admin, who can view file document constructs outside Elasticsearch
             if not fworker.verify_user_is_data_admin():
