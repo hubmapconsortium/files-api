@@ -7,9 +7,9 @@ from file_worker import FileWorker
 
 logger = logging.getLogger(__name__)
 
-def construct_blueprint(appConfig):
+def construct_blueprint(app_config):
     status_blueprint = Blueprint('status', __name__)
-    app_config = appConfig
+    app_config = app_config
 
     """
     Show status of the current VERSION and BUILD
@@ -20,7 +20,7 @@ def construct_blueprint(appConfig):
     """
     @status_blueprint.route('/status', methods=['GET'])
     def get_status():
-        fworker = FileWorker(appConfig=app_config, requestHeaders=request.headers)
+        fworker = FileWorker(app_config=app_config, request_headers=request.headers)
         search_api_status_dict = {
             'elasticsearch_connection': 'Error on search-api retrieval. See logs.'
             ,'elasticsearch_status': 'Error on search-api retrieval. See logs.'

@@ -4,9 +4,6 @@ Werkzeug==2.0.3
 # To match the AWS RDS MySQL server 8.0.23
 mysql-connector-python==8.0.23
 
-# AWS SDK for Python https://aws.amazon.com/sdk-for-python/
-boto3==1.24.47
-
 # The commons package requires requests>=2.22.0 and PyYAML>=5.3.1
 requests==2.25.1
 PyYAML==5.4.1
@@ -15,7 +12,7 @@ PyYAML==5.4.1
 # Use the branch name of commons from github for testing new changes made in commons from different branch
 # Default is main branch specified in docker-compose.development.yml if not set
 # git+https://github.com/hubmapconsortium/commons.git@${COMMONS_BRANCH}#egg=hubmap-commons
-hubmap-commons==2.1.4
+hubmap-commons==2.1.5
 
 # For unit test
 nose2==0.10.0
