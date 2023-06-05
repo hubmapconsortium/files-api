@@ -822,6 +822,8 @@ class FileWorker:
             file_info['donors'] = donors_dict_list
             file_info['dataset_uuid'] = dataset_uuid
             file_info['data_types'] = entity_prov_info['dataset_data_types']
+            file_info['entity_type'] = 'Dataset'
+            file_info['status'] = entity_prov_info['dataset_status']
             file_info.pop('path')
             file_info.pop('base_dir')
             # See admonition at https://docs.python.org/3/library/datetime.html#datetime.datetime.utcnow to
