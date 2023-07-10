@@ -32,10 +32,3 @@ services:
       - "./files-api/nginx/conf.d:/etc/nginx/conf.d"
       # Mount the lookup file
       - "../src/DatasetDescriptionLookup.tsv:/usr/src/app/src/DatasetDescriptionLookup.tsv"
-    networks:
-      - gateway_hubmap
-
-networks:
-  # This is the network created by gateway to enable communicaton between multiple docker-compose projects
-  gateway_hubmap:
-    external: true
