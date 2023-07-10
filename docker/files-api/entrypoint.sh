@@ -13,8 +13,8 @@ echo "Starting files-api container with the same host user UID: $HOST_UID and GI
 getent passwd $HOST_UID > /dev/null 2&>1
 # $? is a special variable that captures the exit status of last task
 if [ $? -ne 0 ]; then
-    groupadd -r -g $HOST_GID hive
-    useradd -r -u $HOST_UID -g $HOST_GID -m hive
+    groupadd -r -g $HOST_GID codcc
+    useradd -r -u $HOST_UID -g $HOST_GID -m codcc
 fi
 
 # When running Nginx as a non-root user, we need to create the pid file
@@ -29,4 +29,4 @@ chown -R hive:hive /var/log/nginx
 # Lastly we use gosu to execute our process "$@" as that user
 # Remember CMD from a Dockerfile of child image gets passed to the entrypoint.sh as command line arguments
 # "$@" is a shell variable that means "all the arguments"
-exec /usr/local/bin/gosu hive "$@"
+exec /usr/local/bin/gosu codcc "$@"
