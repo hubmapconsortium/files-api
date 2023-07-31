@@ -806,6 +806,7 @@ class FileWorker:
             file_info['organs'] = organs_dict_list
             file_info['donors'] = donors_dict_list
             file_info['dataset_uuid'] = dataset_uuid
+            file_info['dataset_sennet_id'] = entity_prov_info['dataset_sennet_id']
             file_info['data_types'] = entity_prov_info['dataset_data_types']
             file_info.pop('path')
             file_info.pop('base_dir')
