@@ -42,6 +42,8 @@ MAX_DOCS_PER_SCROLL_PAGE = 10000
 # Time string for URL parameter. Ref. https://opensearch.org/docs/latest/api-reference/scroll/#url-parameters
 MAX_MINUTES_OPEN_SCROLL_CONTEXT = 10
 
+ID_PROPERTY_NAME = 'dataset_hubmap_id'
+
 UBKG_SERVER =
 UBKG_ENDPOINT_VALUESET =
 UBKG_CODES =
