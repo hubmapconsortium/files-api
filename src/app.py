@@ -71,9 +71,15 @@ requests.packages.urllib3.disable_warnings(category = InsecureRequestWarning)
 try:
     for exception in get_http_exceptions_classes():
         app.register_error_handler(exception, abort_err_handler)
-    app.ubkg = initialize_ubkg(app.config)
-    with app.app_context():
-        init_ontology()
+
+    if app.config.__contains__('UBKG_SERVER') and app.config.__contains__(
+            'UBKG_ENDPOINT_VALUESET') and app.config.__contains__('UBKG_CODES'):
+        app.ubkg = initialize_ubkg(app.config)
+        with app.app_context():
+            init_ontology()
+    else:
+        raise Exception(
+            "UBKG configuration parameter(s) missing. Please check that 'UBKG_SERVER', 'UBKG_ENDPOINT_VALUESET', and 'UBKG_CODES' have been set.")
 
     logger.info("Initialized ubkg module successfully :)")
 # Use a broad catch-all here
