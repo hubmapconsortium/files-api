@@ -736,7 +736,7 @@ class FileWorker:
             organ_dict['uuid'] = organ_uuid
 
             organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check=['Sample'])
-            if not organ_info['sample_category'] or organ_info['sample_category'] != 'Organ':
+            if not organ_info['sample_category'] or organ_info['sample_category'].lower() != 'organ':
                 continue
             donor_dict['uuid'] = organ_info['direct_ancestor']['uuid'] if organ_info['direct_ancestor']['uuid'] else None
             if not organ_info['organ']:
