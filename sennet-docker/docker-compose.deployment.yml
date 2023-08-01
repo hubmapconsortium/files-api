@@ -4,6 +4,6 @@ services:
   
   files-api: 
     # Use the published image and tag from DockerHub
-    image: hubmap/files-api:${FILES_API_VERSION:?err}
+    image: sennet/files-api:${FILES_API_VERSION:?err}
 
 
