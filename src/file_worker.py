@@ -156,12 +156,12 @@ class FileWorker:
         self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
         # Keep a semi-immutable dictionary of known organs, from values used by all the microservices.
-        self.organ_type_dict = Ontology.organ_types(as_data_dict=True, data_as_val=True)
+        self.organ_type_dict = Ontology.ops(as_data_dict=True, data_as_val=True).organ_types()
 
         # Keep a semi-immutable dictionary of known assay, from values used by all the microservices. From that
         # dictionary, create a reverse lookup dictionary keyed by alt-names for the
         # purpose of resolving the dataset_data_types list to a recognized column of the spreadsheet.
-        self.assay_type_dict = Ontology.assay_types(as_data_dict=True, prop_callback=None, data_as_val=True)
+        self.assay_type_dict = Ontology.ops(as_data_dict=True, prop_callback=None, data_as_val=True).assay_types()
 
         self.assay_type_altname_ref = {}
         # The specified alt-names entry may be either a list or a string. Convert strings to a one-element

@@ -11,7 +11,8 @@ import time
 # Atlas Consortia commons
 from atlas_consortia_commons.ubkg import initialize_ubkg
 from atlas_consortia_commons.rest import *
-from lib.ontology import init_ontology, Ontology
+from atlas_consortia_commons.ubkg.ubkg_sdk import init_ontology
+from lib.ontology import Ontology
 
 from routes.status import status_blueprint
 from routes.file_info import file_info_blueprint
