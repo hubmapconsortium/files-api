@@ -4,6 +4,9 @@ src/instance/app.cfg
 
 venv-files-api
 
+# Ignore docker env file
+docker/.env
+
 # Ignore copied files
 docker/files-api/src
 docker/files-api/VERSION
