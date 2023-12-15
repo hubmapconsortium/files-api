@@ -8,12 +8,6 @@ import logging
 import json
 import time
 
-# Atlas Consortia commons
-from atlas_consortia_commons.ubkg import initialize_ubkg
-from atlas_consortia_commons.rest import *
-from atlas_consortia_commons.ubkg.ubkg_sdk import init_ontology
-from lib.ontology import Ontology
-
 from routes.status import status_blueprint
 from routes.file_info import file_info_blueprint
 from routes.file_info_index import file_info_index_blueprint
@@ -64,30 +58,38 @@ app.config['ENTITY_API_URL'] = app.config['ENTITY_API_URL'].strip('/')
 # Suppress InsecureRequestWarning warning when requesting status on https with ssl cert verify disabled
 requests.packages.urllib3.disable_warnings(category = InsecureRequestWarning)
 
-
 ####################################################################################################
-## UBKG Ontology and REST initialization
+## Register error handlers
 ####################################################################################################
 
-try:
-    for exception in get_http_exceptions_classes():
-        app.register_error_handler(exception, abort_err_handler)
+# Error handler for 400 Bad Request with custom error message
+@app.errorhandler(400)
+def http_bad_request(e):
+    return jsonify(error = str(e)), 400
 
-    if app.config.__contains__('UBKG_SERVER') and app.config.__contains__(
-            'UBKG_ENDPOINT_VALUESET') and app.config.__contains__('UBKG_CODES'):
-        app.ubkg = initialize_ubkg(app.config)
-        with app.app_context():
-            init_ontology()
-    else:
-        raise Exception(
-            "UBKG configuration parameter(s) missing. Please check that 'UBKG_SERVER', 'UBKG_ENDPOINT_VALUESET', and 'UBKG_CODES' have been set.")
 
-    logger.info("Initialized ubkg module successfully :)")
-# Use a broad catch-all here
-except Exception:
-    msg = "Failed to initialize the ubkg module"
-    # Log the full stack trace, prepend a line with our message
-    logger.exception(msg)
+# Error handler for 401 Unauthorized with custom error message
+@app.errorhandler(401)
+def http_unauthorized(e):
+    return jsonify(error = str(e)), 401
+
+
+# Error handler for 403 Forbidden with custom error message
+@app.errorhandler(403)
+def http_forbidden(e):
+    return jsonify(error = str(e)), 403
+
+
+# Error handler for 404 Not Found with custom error message
+@app.errorhandler(404)
+def http_not_found(e):
+    return jsonify(error = str(e)), 404
+
+
+# Error handler for 500 Internal Server Error with custom error message
+@app.errorhandler(500)
+def http_internal_server_error(e):
+    return jsonify(error = str(e)), 500
 
 ####################################################################################################
 ## API Endpoints

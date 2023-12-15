@@ -22,12 +22,13 @@ from app_db import DBConn
 from hubmap_commons.S3_worker import S3Worker
 from hubmap_commons.hm_auth import AuthHelper
 
-from lib.ontology import Ontology
-
 # UMLS Concept Unique Identifiers used to encode entity-api information
 UMLS_AGE_GROUP_CUI = 'C0001779'
 UMLS_RACE_GROUP_CUI = 'C0034510'
 
+# Yaml file to be parsed for organ description lookup
+ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/organ_types.yaml'
+ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
 
 # Keep a file of descriptions associated with a Dataset data_type and a file regex pattern until
 # the ontology service is available.  Load the file into a dictionary keyed by data_type, and
@@ -156,13 +157,30 @@ class FileWorker:
         self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
         # Keep a semi-immutable dictionary of known organs, from values used by all the microservices.
-        self.organ_type_dict = Ontology.ops(as_data_dict=True, data_as_val=True).organ_types()
+        response = requests.get(url=ORGAN_TYPES_YAML, verify=False)
+        if response.status_code == 200:
+            yaml_file = response.text
+            try:
+                self.organ_type_dict = MappingProxyType(yaml.safe_load(yaml_file))
+            except yaml.YAMLError as e:
+                raise yaml.YAMLError(e)
+        else:
+            self.logger.error(f"Unable to retrieve {ORGAN_TYPES_YAML}")
+            raise HTTPException(response.status_code, f"Unable to retrieve {ORGAN_TYPES_YAML}")
 
         # Keep a semi-immutable dictionary of known assay, from values used by all the microservices. From that
         # dictionary, create a reverse lookup dictionary keyed by alt-names for the
         # purpose of resolving the dataset_data_types list to a recognized column of the spreadsheet.
-        self.assay_type_dict = Ontology.ops(as_data_dict=True, prop_callback=None, data_as_val=True).assay_types()
-
+        response = requests.get(url=ASSAY_TYPES_YAML, verify=False)
+        if response.status_code == 200:
+            yaml_file = response.text
+            try:
+                self.assay_type_dict = MappingProxyType(yaml.safe_load(yaml_file))
+            except yaml.YAMLError as e:
+                raise yaml.YAMLError(e)
+        else:
+            self.logger.error(f"Unable to retrieve {ASSAY_TYPES_YAML}")
+            raise HTTPException(response.status_code, f"Unable to retrieve {ASSAY_TYPES_YAML}")
         self.assay_type_altname_ref = {}
         # The specified alt-names entry may be either a list or a string. Convert strings to a one-element
         # list, then convert the list into a tuple to be the immutable object used as the dictionary key.
@@ -736,7 +754,7 @@ class FileWorker:
             organ_dict['uuid'] = organ_uuid
 
             organ_info = self._get_entity(entity_id=organ_uuid, bearer_token=bearer_token, entity_type_check=['Sample'])
-            if not organ_info['sample_category'] or organ_info['sample_category'].lower() != 'organ':
+            if not organ_info['sample_category'] or organ_info['sample_category'] != 'organ':
                 continue
             donor_dict['uuid'] = organ_info['direct_ancestor']['uuid'] if organ_info['direct_ancestor']['uuid'] else None
             if not organ_info['organ']:
@@ -744,13 +762,10 @@ class FileWorker:
             if not organ_info['direct_ancestor']:
                 raise Exception(f"Unable to identify donor for {organ_uuid} for dataset {dataset_uuid}.")
             organ_dict['type_code'] = organ_info['organ'] if organ_info['organ'] else None
-
-            organ_dict['type'] = None
-            for organ_type in self.organ_type_dict:
-                if self.organ_type_dict[organ_type]['rui_code'] == organ_dict['type_code']:
-                    organ_dict['type'] = self.organ_type_dict[organ_type]['term']
-                    break
-
+            try:
+                organ_dict['type'] = self.organ_type_dict[organ_dict['type_code']] if organ_dict['type_code'] and self.organ_type_dict[organ_dict['type_code']] else None
+            except KeyError as ke:
+                organ_dict['type'] = 'Unrecognized organ code: ' + organ_dict['type_code']
             if 'metadata' in organ_info['direct_ancestor'] and \
                 'organ_donor_data' in organ_info['direct_ancestor']['metadata']:
                 for concept in organ_info['direct_ancestor']['metadata']['organ_donor_data']:
