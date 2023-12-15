@@ -5,9 +5,15 @@ src/instance/app.cfg
 venv-files-api
 
 # Ignore copied files
-docker/files-api/src
-docker/files-api/VERSION
-docker/files-api/BUILD
+hubmap-docker/files-api/src
+hubmap-docker/files-api/VERSION
+hubmap-docker/files-api/BUILD
+sennet-docker/files-api/src
+sennet-docker/files-api/VERSION
+sennet-docker/files-api/BUILD
+
+# Ignore docker env file
+hubmap-docker/.env
 
 # Ignore the generated BUILD file
 BUILD
