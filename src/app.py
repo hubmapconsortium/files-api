@@ -98,7 +98,7 @@ def http_internal_server_error(e):
 # The only endpoint that should be in this file, all others should be route Blueprints...
 @app.route('/', methods=['GET'])
 def index():
-    return "Hello! This is HuBMAP File API service :)"
+    return "Hello! This is the File API service :)"
 
 ####################################################################################################
 ## For local development/testing

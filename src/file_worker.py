@@ -106,6 +106,7 @@ class FileWorker:
             self.entity_api_url = app_config['ENTITY_API_URL'].strip('/')
             self.search_api_url = app_config['SEARCH_API_URL'].strip('/')
             self.files_api_composite_index = app_config['FILES_API_COMPOSITE_INDEX']
+            self.id_property_name = app_config['ID_PROPERTY_NAME']
 
             self.max_docs_per_scroll_page = app_config['MAX_DOCS_PER_SCROLL_PAGE']
             self.max_minutes_open_scroll_context = app_config['MAX_MINUTES_OPEN_SCROLL_CONTEXT']
@@ -821,6 +822,7 @@ class FileWorker:
             file_info['organs'] = organs_dict_list
             file_info['donors'] = donors_dict_list
             file_info['dataset_uuid'] = dataset_uuid
+            file_info[self.id_property_name] = entity_prov_info[self.id_property_name]
             file_info['data_types'] = entity_prov_info['dataset_data_types']
             file_info.pop('path')
             file_info.pop('base_dir')

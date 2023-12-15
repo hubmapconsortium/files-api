@@ -1,0 +1,9 @@
+version: "3.7"
+
+services:
+  
+  files-api: 
+    # Use the published image and tag from DockerHub
+    image: sennet/files-api:${FILES_API_VERSION:?err}
+
+
