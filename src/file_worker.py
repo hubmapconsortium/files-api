@@ -26,8 +26,7 @@ from hubmap_commons.hm_auth import AuthHelper
 UMLS_AGE_GROUP_CUI = 'C0001779'
 UMLS_RACE_GROUP_CUI = 'C0034510'
 
-# Yaml file to be parsed for organ description lookup
-ORGAN_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/organ_types.yaml'
+# Yaml file to be parsed for assay type description lookup
 ASSAY_TYPES_YAML = 'https://raw.githubusercontent.com/hubmapconsortium/search-api/main/src/search-schema/data/definitions/enums/assay_types.yaml'
 
 # Keep a file of descriptions associated with a Dataset data_type and a file regex pattern until
@@ -73,6 +72,9 @@ class DatasetIndexScopeType(Enum):
     PUBLIC = 'PUBLIC'
 
 class FileWorker:
+    # Constants to build endpoint URLs for Ontology API
+    ONTOLOGY_API_ORGAN_TYPES_ENDPOINT = '/organs/by-code?application_context=HUBMAP'
+    ONTOLOGY_API_ASSAY_TYPES_ENDPOINT = '/assaytype?application_context=HUBMAP'
 
     def __init__(self, app_config=None, request_headers=None):
         self.logger = logging.getLogger('files-api')
@@ -105,6 +107,7 @@ class FileWorker:
             self.uuid_api_url = app_config['UUID_API_URL'].strip('/')
             self.entity_api_url = app_config['ENTITY_API_URL'].strip('/')
             self.search_api_url = app_config['SEARCH_API_URL'].strip('/')
+            self._ontology_api_base_url = app_config['ONTOLOGY_API_URL'].strip('/')
             self.files_api_composite_index = app_config['FILES_API_COMPOSITE_INDEX']
             self.id_property_name = app_config['ID_PROPERTY_NAME']
 
@@ -157,16 +160,11 @@ class FileWorker:
         self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
         # Keep a semi-immutable dictionary of known organs, from values used by all the microservices.
-        response = requests.get(url=ORGAN_TYPES_YAML, verify=False)
-        if response.status_code == 200:
-            yaml_file = response.text
-            try:
-                self.organ_type_dict = MappingProxyType(yaml.safe_load(yaml_file))
-            except yaml.YAMLError as e:
-                raise yaml.YAMLError(e)
-        else:
-            self.logger.error(f"Unable to retrieve {ORGAN_TYPES_YAML}")
-            raise HTTPException(response.status_code, f"Unable to retrieve {ORGAN_TYPES_YAML}")
+        self.known_organ_types = self.get_organ_types()
+
+        # Keep a dictionary of assay types from the values used by all the microservices
+        # @TODO-unused until soft assay work completed and use of ASSAY_TYPES_YAML eliminated.
+        self.known_soft_assay_types = self.get_assay_types()
 
         # Keep a semi-immutable dictionary of known assay, from values used by all the microservices. From that
         # dictionary, create a reverse lookup dictionary keyed by alt-names for the
@@ -222,6 +220,112 @@ class FileWorker:
                     self.logger.warning(f"Loading {DATASET_DESCRIPTION_CSV_FILE}, found existing dataset_desc_dict[{dict_key}] entry for '{row['file pattern']}', keeping '{self.dataset_desc_dict[dict_key][row['file pattern']]['description']}', skipping '{row['file description']}'.")
                 else:
                     self.dataset_desc_dict[dict_key][row['file pattern']] = pattern_dict
+
+    """
+    Retrieve the assay types from ontology-api, using the same code used by entity-api
+
+    Returns
+    -------
+    dict
+        The available assay types by name in the following format:
+
+        {
+            "10x-multiome": {
+                "contains_pii": true,
+                "description": "10x Multiome",
+                "name": "10x-multiome",
+                "primary": true,
+                "vis_only": false,
+                "vitessce_hints": []
+            },
+            "AF": {
+                "contains_pii": false,
+                "description": "Autofluorescence Microscopy",
+                "name": "AF",
+                "primary": true,
+                "vis_only": false,
+                "vitessce_hints": []
+            },
+            ...
+        }
+    """
+    def get_assay_types(self):
+        global _ontology_api_url
+
+        _ontology_api_url = f"{self._ontology_api_base_url}{self.ONTOLOGY_API_ASSAY_TYPES_ENDPOINT}"
+
+        # Disable ssl certificate verification, and use the read-only ontology-api without authentication.
+        response = requests.get(url=_ontology_api_url, verify=False)
+
+        # Invoke .raise_for_status(), an HTTPError will be raised with certain status codes
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            assay_types_by_name = {}
+            result_dict = response.json()
+
+            # Due to the json envelop being used int the json result
+            assay_types_list = result_dict['result']
+            for assay_type_dict in assay_types_list:
+                assay_types_by_name[assay_type_dict['name']] = assay_type_dict
+
+            return assay_types_by_name
+        else:
+            # Log the full stack trace, prepend a line with our message
+            self.logger.exception("Unable to make a request to query the assay types via ontology-api")
+
+            self.logger.debug("======get_assay_types() status code from ontology-api======")
+            self.logger.debug(response.status_code)
+
+            self.logger.debug("======get_assay_types() response text from ontology-api======")
+            self.logger.debug(response.text)
+
+            # Also bubble up the error message from ontology-api
+            raise requests.exceptions.RequestException(response.text)
+
+    """
+    Retrieve the organ types from ontology-api, using the same code used by search-api and entity-api
+
+    Returns
+    -------
+    dict
+        The available organ types in the following format:
+
+        {
+            "AO": "Aorta",
+            "BD": "Blood",
+            "BL": "Bladder",
+            "BM": "Bone Marrow",
+            "BR": "Brain",
+            "HT": "Heart",
+            ...
+        }
+    """
+    def get_organ_types(self):
+        global _ontology_api_url
+
+        target_url = f"{self._ontology_api_base_url}{self.ONTOLOGY_API_ORGAN_TYPES_ENDPOINT}"
+
+        # Disable ssl certificate verification, and use the read-only ontology-api without authentication.
+        response = requests.get(url=target_url, verify=False)
+
+        # Invoke .raise_for_status(), an HTTPError will be raised with certain status codes
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            # Log the full stack trace, prepend a line with our message
+            self.logger.exception("Unable to make a request to query the organ types via ontology-api")
+
+            self.logger.debug("======get_organ_types() status code from ontology-api======")
+            self.logger.debug(response.status_code)
+
+            self.logger.debug("======get_organ_types() response text from ontology-api======")
+            self.logger.debug(response.text)
+
+            # Also bubble up the error message from ontology-api
+            raise requests.exceptions.RequestException(response.text)
 
     def _get_entity_generation_info(self, entity_uuid, theQuery):
         uuid_tuple = (entity_uuid,)  # N.B. comma to force creation of tuple with one value, rather than scalar
@@ -762,10 +866,20 @@ class FileWorker:
             if not organ_info['direct_ancestor']:
                 raise Exception(f"Unable to identify donor for {organ_uuid} for dataset {dataset_uuid}.")
             organ_dict['type_code'] = organ_info['organ'] if organ_info['organ'] else None
+
+            # Swallow being unable to retrieve the organ description so that
+            # indexing can proceed, but log what was presented but could not be found.
+            # @TODO-KBKBKB right?
             try:
-                organ_dict['type'] = self.organ_type_dict[organ_dict['type_code']] if organ_dict['type_code'] and self.organ_type_dict[organ_dict['type_code']] else None
+                if organ_dict['type_code'] and self.known_organ_types[organ_dict['type_code']]:
+                    organ_description = self.known_organ_types[organ_dict['type_code']]
+                else:
+                    organ_description = f"Unable retrieve organ type ontology information for" \
+                                        f" code: {organ_dict['type_code']}"
             except KeyError as ke:
-                organ_dict['type'] = 'Unrecognized organ code: ' + organ_dict['type_code']
+                organ_description = f"Unrecognized organ code: {organ_dict['type_code']}"
+            organ_dict['type'] = organ_description
+
             if 'metadata' in organ_info['direct_ancestor'] and \
                 'organ_donor_data' in organ_info['direct_ancestor']['metadata']:
                 for concept in organ_info['direct_ancestor']['metadata']['organ_donor_data']:
