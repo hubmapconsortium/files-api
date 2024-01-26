@@ -12,7 +12,7 @@ AWS_OBJECT_URL_EXPIRATION_IN_SECS = 10*24*60*60 # 10 days
 # Large response threshold, as determined by len() for the character set, above
 # which responses will be stashed in an S3 bucket and a pre-signed URL
 # returned in the response to avoid the AWS Gateway 10Mb constraint
-LARGE_RESPONSE_THRESHOLD = 9*(2**20)
+LARGE_RESPONSE_THRESHOLD = 9*(2**20) + 900*(2**10) #9.9Mb
 
 # MySQL connection
 DB_HOST = ''
@@ -34,6 +34,10 @@ SEARCH_API_URL = 'http://search-api:8080'
 
 # Composite index name, as supported by search-api in search-config.yaml deployed for each tier.
 FILES_API_COMPOSITE_INDEX = 'files'
+
+# URL for talking to Ontology API (default for DEV)
+# Works regardless of the trailing slash
+ONTOLOGY_API_URL = 'https://ontology-api.dev.hubmapconsortium.org'
 
 # Maximum number of hits for each page of search scroll results.
 # N.B. Elasticsearch has marked scroll functionality as deprecated, but OpenSearch has not.
