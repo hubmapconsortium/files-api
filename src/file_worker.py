@@ -159,6 +159,14 @@ class FileWorker:
         self.lock = threading.RLock()
         self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
+        #PULL THE REST OF THIS CODE FROM THE CONSTRUCTOR NOW THAT ONTOLOGY-API REPLACES THE SPREADSHEET
+        self.known_organ_types = {}
+        self.known_soft_assay_types = {}
+        self.assay_type_dict = {}
+        self.assay_type_altname_ref = {}
+        self.dataset_desc_dict = {}
+        '''
+        PULL THE REST OF THIS CODE FROM THE CONSTRUCTOR NOW THAT ONTOLOGY-API REPLACES THE SPREADSHEET
         # Keep a semi-immutable dictionary of known organs, from values used by all the microservices.
         self.known_organ_types = self.get_organ_types()
 
@@ -220,6 +228,7 @@ class FileWorker:
                     self.logger.warning(f"Loading {DATASET_DESCRIPTION_CSV_FILE}, found existing dataset_desc_dict[{dict_key}] entry for '{row['file pattern']}', keeping '{self.dataset_desc_dict[dict_key][row['file pattern']]['description']}', skipping '{row['file description']}'.")
                 else:
                     self.dataset_desc_dict[dict_key][row['file pattern']] = pattern_dict
+        '''
 
     """
     Retrieve the assay types from ontology-api, using the same code used by entity-api
