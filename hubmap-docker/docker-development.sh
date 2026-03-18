@@ -83,7 +83,7 @@ else
 
         echo 'Checks complete, all good :)'
     elif [ "$1" = "config" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.development.yml -p files-api config
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p files-api config
     elif [ "$1" = "build" ]; then
         # Delete the copied source code dir if exists
         if [ -d "files-api/src" ]; then
@@ -106,13 +106,13 @@ else
         cp ../VERSION files-api
         cp ../BUILD files-api
 
-        docker-compose -f docker-compose.yml -f docker-compose.development.yml -p files-api build
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p files-api build --no-cache
     elif [ "$1" = "start" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.development.yml -p files-api up -d
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p files-api up -d
     elif [ "$1" = "stop" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.development.yml -p files-api stop
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p files-api stop
     elif [ "$1" = "down" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.development.yml -p files-api down
+        docker compose -f docker-compose.yml -f docker-compose.development.yml -p files-api down
     fi
 fi
 

@@ -159,67 +159,12 @@ class FileWorker:
         self.lock = threading.RLock()
         self.hmdb = DBConn(self.dbHost, self.dbUsername, self.dbPassword, self.dbName)
 
-        # Keep a semi-immutable dictionary of known organs, from values used by all the microservices.
-        self.known_organ_types = self.get_organ_types()
-
-        # Keep a dictionary of assay types from the values used by all the microservices
-        # @TODO-unused until soft assay work completed and use of ASSAY_TYPES_YAML eliminated.
-        self.known_soft_assay_types = self.get_assay_types()
-
-        # Keep a semi-immutable dictionary of known assay, from values used by all the microservices. From that
-        # dictionary, create a reverse lookup dictionary keyed by alt-names for the
-        # purpose of resolving the dataset_data_types list to a recognized column of the spreadsheet.
-        response = requests.get(url=ASSAY_TYPES_YAML, verify=False)
-        if response.status_code == 200:
-            yaml_file = response.text
-            try:
-                self.assay_type_dict = MappingProxyType(yaml.safe_load(yaml_file))
-            except yaml.YAMLError as e:
-                raise yaml.YAMLError(e)
-        else:
-            self.logger.error(f"Unable to retrieve {ASSAY_TYPES_YAML}")
-            raise HTTPException(response.status_code, f"Unable to retrieve {ASSAY_TYPES_YAML}")
+        # Set these empty now as switching from loading YAML file to use of Ontology API
+        self.known_organ_types = {}
+        self.known_soft_assay_types = {}
+        self.assay_type_dict = {}
         self.assay_type_altname_ref = {}
-        # The specified alt-names entry may be either a list or a string. Convert strings to a one-element
-        # list, then convert the list into a tuple to be the immutable object used as the dictionary key.
-        # Set the entry value to the current, preferred value.
-        for assay_type_key in self.assay_type_dict.keys():
-            self.assay_type_altname_ref[(assay_type_key,)] = assay_type_key
-            # Also, create an entry using the "description" as an alternate key, for use with values
-            # returned using entity-api's /datasets/<dataset id>/prov-info endpoint. This can be eliminated once
-            # a new entity-api endpoint is used which returns a Dataset type directly rather than the description.
-            self.assay_type_altname_ref[(self.assay_type_dict[assay_type_key]['description'],)] = assay_type_key
-        # Forget about Big O, loop through the dictionary again to process alt-names.
-        for assay_type_key in self.assay_type_dict.keys():
-            for alt_name in self.assay_type_dict[assay_type_key]['alt-names']:
-                if isinstance(alt_name, str):
-                    self.assay_type_altname_ref[tuple([alt_name])] = assay_type_key
-                    continue
-                if isinstance(alt_name, list):
-                    # When an alt-names entry is a list, create entries forward & backward for
-                    # it, to better match what may be encountered in the wild.
-                    self.assay_type_altname_ref[tuple(alt_name)] = assay_type_key
-                    self.assay_type_altname_ref[tuple(reversed(alt_name))] = assay_type_key
-                    continue
-                self.logger.warning(f"alt_name={str(alt_name)} not loaded for assay_type_key={assay_type_key} due to unexpected type.")
-
-        # Set up a dictionary of dictionaries from information in the TSV file created from the analysis spreadsheet.
-        # The dictionary key is a tuple to match the keys of the self.assay_type_altname_ref dictionary.
-        # The dictionary value is a dictionary keyed by the specified file regex pattern, with values for the
-        # description and a compiled, expanded file regular expression supporting soft-matching & grouping.
         self.dataset_desc_dict = {}
-        with open(DATASET_DESCRIPTION_CSV_FILE) as tsvfile:
-            reader = csv.DictReader(tsvfile, delimiter='\t')
-            for row in reader:
-                dict_key = tuple([row['Dataset code']])
-                if not dict_key in self.dataset_desc_dict:
-                    self.dataset_desc_dict[dict_key] = {}
-                expanded_fpattern = '(?P<exp_pat_prefix>.*?)(?P<fpattern>'+row['file pattern']+')(?P<exp_pat_suffix>.*?)'
-                pattern_dict = {'description': row['file description'], 'file_pattern_re_obj': re.compile(expanded_fpattern)}
-                if row['file pattern'] in self.dataset_desc_dict[dict_key]:
-                    self.logger.warning(f"Loading {DATASET_DESCRIPTION_CSV_FILE}, found existing dataset_desc_dict[{dict_key}] entry for '{row['file pattern']}', keeping '{self.dataset_desc_dict[dict_key][row['file pattern']]['description']}', skipping '{row['file description']}'.")
-                else:
-                    self.dataset_desc_dict[dict_key][row['file pattern']] = pattern_dict
 
     """
     Retrieve the assay types from ontology-api, using the same code used by entity-api
